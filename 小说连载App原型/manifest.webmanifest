@@ -1,0 +1,11 @@
+{
+  "name": "墨间 · 私人小说工作台",
+  "short_name": "墨间",
+  "description": "用于整理、续写和导出个人连载小说的离线写作工作台。",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f8f8fa",
+  "theme_color": "#f8f8fa",
+  "lang": "zh-CN",
+  "icons": [{ "src": "icons/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
