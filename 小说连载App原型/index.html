@@ -20,6 +20,20 @@
     <button class="chapter-row"><span class="chapter-no">第 22 章</span><span class="chapter-title">失而复得的车票</span><span class="chapter-meta">已完成 · 1,885 字</span><b>›</b></button>
   </section>
 </section>
+<section class="tool-page" id="charactersPage" aria-label="人物设定">
+  <header class="tool-header"><button class="back-button" data-close-tool>‹ 作品</button><p class="eyebrow">《雾港来信》</p><h1>人物设定</h1><p>用关键资料守住角色的一致性。</p></header>
+  <div id="characterList" class="tool-list"></div>
+  <form id="characterForm" class="add-form"><h2>新增角色</h2><input id="characterName" required maxlength="14" placeholder="角色姓名"><input id="characterRole" required maxlength="28" placeholder="身份 / 与主角的关系"><textarea id="characterNote" maxlength="80" placeholder="性格、目标或伏笔"></textarea><button type="submit">保存角色</button></form>
+</section>
+<section class="tool-page" id="timelinePage" aria-label="故事时间线">
+  <header class="tool-header"><button class="back-button" data-close-tool>‹ 作品</button><p class="eyebrow">《雾港来信》</p><h1>故事时间线</h1><p>按发生顺序记录关键事件。</p></header>
+  <div id="timelineList" class="timeline-list"></div>
+  <form id="timelineForm" class="add-form"><h2>新增事件</h2><input id="eventTime" required maxlength="22" placeholder="时间，例如：第 26 章 · 黄昏"><input id="eventTitle" required maxlength="36" placeholder="事件标题"><textarea id="eventNote" maxlength="80" placeholder="事件内容 / 影响"></textarea><button type="submit">保存事件</button></form>
+</section>
+<section class="tool-page" id="exportPage" aria-label="导出稿件">
+  <header class="tool-header"><button class="back-button" data-close-tool>‹ 作品</button><p class="eyebrow">发布前整理</p><h1>导出稿件</h1><p>将章节清单整理成便于上传平台的 TXT 文件。</p></header>
+  <div class="export-card"><label for="exportBook">选择作品</label><select id="exportBook"><option>雾港来信</option><option>夏日来信</option><option>北方的白鲸</option></select><div id="exportSummary" class="export-summary"></div><button id="toolExportButton" class="primary-action">导出 TXT 稿件</button><p>导出内容包含作品名、章节标题、状态和字数。正文编辑器接入后会自动附带全文。</p></div>
+</section>
 <section class="settings-page" aria-label="设置">
   <header class="settings-header"><div><p class="eyebrow">私人创作空间</p><h1>设置</h1></div></header>
   <section class="settings-group"><p class="group-label">数据与同步</p><div class="setting-row"><div><h3>自动同步</h3><p>联网时自动备份稿件与素材</p></div><label class="switch"><input id="syncToggle" type="checkbox" checked><span></span></label></div><p id="syncStatus" class="setting-hint">已开启 · 最近同步于今天 21:18</p></section>
