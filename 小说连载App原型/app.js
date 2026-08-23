@@ -74,18 +74,18 @@ function showWorkDetails(name) {
 function renderCharacters() { const items = scoped('characters'); document.querySelector('#characterWorkContext').textContent = contextName(); document.querySelector('#characterList').innerHTML = items.map(item => `<article class="character-item"><h3>${escapeHtml(item.name)}</h3><span>${escapeHtml(item.role)}</span><p>${escapeHtml(item.note || '暂无补充设定')}</p></article>`).join(''); document.querySelector('#characterCount').textContent = activeBook ? (items.length ? `${items.length} 个角色` : '还没有角色') : '选择作品后查看'; }
 function renderTimeline() { const items = scoped('events'); document.querySelector('#timelineWorkContext').textContent = contextName(); document.querySelector('#timelineList').innerHTML = items.map(item => `<article class="timeline-item"><time>${escapeHtml(item.time)}</time><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.note || '暂无补充说明')}</p></article>`).join(''); document.querySelector('#eventCount').textContent = activeBook ? (items.length ? `${items.length} 条事件` : '还没有事件') : '选择作品后查看'; }
 function renderOutlines() { const items = scoped('outlines'); document.querySelector('#outlineWorkContext').textContent = contextName(); document.querySelector('#outlineList').innerHTML = items.map(item => `<article class="outline-item"><div class="outline-item-head"><h3>${escapeHtml(item.title)}</h3><span>${escapeHtml(item.status)}</span></div><p>${escapeHtml(item.note || '暂无补充说明')}</p><small>${escapeHtml(item.chapter || '未关联章节')}</small></article>`).join(''); document.querySelector('#outlineCount').textContent = activeBook ? (items.length ? `${items.length} 条情节` : '还没有情节') : '选择作品后查看'; }
-function renderMaterials() { const items = scoped('materials'); const list = activeMaterialFilter === '全部' ? items : items.filter(item => item.type === activeMaterialFilter); document.querySelector('#materialList').innerHTML = activeBook && list.length ? list.map(item => `<button class="material-item"><span class="material-item-head"><span class="material-type">${escapeHtml(item.type)}</span><span class="material-work">${escapeHtml(activeBook)}</span></span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.content)}</p>${item.tags ? `<span class="material-tags"># ${escapeHtml(item.tags)}</span>` : ''}</button>`).join('') : `<div class="material-empty"><b>◇</b>${activeBook ? `还没有${activeMaterialFilter === '全部' ? '素材' : activeMaterialFilter + '素材'}，点击右上角新增一条吧。` : '请选择或创建一部作品。'}</div>`; }
+function renderMaterials() { const items = scoped('materials'); const list = (activeMaterialFilter === '全部' ? items : items.filter(item => item.type === activeMaterialFilter)).map(item => ({ item, index: items.indexOf(item) })); document.querySelector('#materialList').innerHTML = activeBook && list.length ? list.map(({ item, index }) => `<article class="material-item"><span class="material-item-head"><span class="material-type">${escapeHtml(item.type)}</span><span class="material-work">${escapeHtml(activeBook)}</span></span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.content)}</p>${item.tags ? `<span class="material-tags"># ${escapeHtml(item.tags)}</span>` : ''}<button class="material-delete" data-material-index="${index}">删除</button></article>`).join('') : `<div class="material-empty"><b>◇</b>${activeBook ? `还没有${activeMaterialFilter === '全部' ? '素材' : activeMaterialFilter + '素材'}，点击右上角新增一条吧。` : '请选择或创建一部作品。'}</div>`; document.querySelectorAll('.material-delete').forEach(button => button.addEventListener('click', () => requestDeletion('material', Number(button.dataset.materialIndex)))); }
 function refreshScopedViews() { renderCharacters(); renderTimeline(); renderOutlines(); renderMaterials(); document.querySelector('#materialWorkContext').textContent = contextName(); }
 
 function openEditor(index) { if (!ensureActiveBook()) return; activeChapterIndex = index; const chapter = books[activeBook].chapters[index]; screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible')); screen.classList.add('show-editor'); editorPage.classList.add('is-visible'); document.querySelector('#chapterTitleInput').value = chapter.title || ''; document.querySelector('#chapterBodyInput').value = chapter.body || ''; updateEditorMeta(); }
 function updateEditorMeta() { if (activeChapterIndex === null || !books[activeBook]) return; const chapter = books[activeBook].chapters[activeChapterIndex]; chapter.title = document.querySelector('#chapterTitleInput').value.trim() || '未命名章节'; chapter.body = document.querySelector('#chapterBodyInput').value; chapter.words = chapter.body.replace(/\s/g, '').length; chapter.status = '草稿'; books[activeBook].updatedAt = new Date().toISOString(); saveBooks(); document.querySelector('#wordCount').textContent = `${chapter.words.toLocaleString()} 字`; document.querySelector('#editorState').textContent = '已自动保存'; }
 function closeEditor() { updateEditorMeta(); renderBookControls(); renderChapters(); showPage('章节'); chaptersPage.classList.add('is-visible'); screen.classList.add('show-chapters'); }
-function requestDeletion(type) {
-  if (!activeBook || (type === 'chapter' && activeChapterIndex === null)) return;
+function requestDeletion(type, materialIndex = null) {
+  if (!activeBook || (type === 'chapter' && activeChapterIndex === null) || (type === 'material' && materialIndex === null)) return;
   const code = String(Math.floor(1000 + Math.random() * 9000));
-  pendingDeletion = { type, code, book: activeBook, chapter: activeChapterIndex };
-  document.querySelector('#deleteTitle').textContent = type === 'work' ? '删除这部作品？' : '删除这一章？';
-  document.querySelector('#deleteHint').textContent = type === 'work' ? `《${activeBook}》及其全部章节、素材和创作资料将被永久删除。` : '这一章的标题和正文将被永久删除。';
+  pendingDeletion = { type, code, book: activeBook, chapter: activeChapterIndex, material: materialIndex };
+  document.querySelector('#deleteTitle').textContent = type === 'work' ? '删除这部作品？' : type === 'chapter' ? '删除这一章？' : '删除这条素材？';
+  document.querySelector('#deleteHint').textContent = type === 'work' ? `《${activeBook}》及其全部章节、素材和创作资料将被永久删除。` : type === 'chapter' ? '这一章的标题和正文将被永久删除。' : '这条素材及其标签将被永久删除。';
   document.querySelector('#deleteCode').textContent = code;
   document.querySelector('#deleteCodeInput').value = '';
   document.querySelector('#deleteConfirm').disabled = true;
@@ -100,9 +100,12 @@ function confirmDeletion() {
     activeBook = Object.keys(books)[0] || null;
     if (activeBook) localStorage.setItem('mojian-active-book', activeBook); else localStorage.removeItem('mojian-active-book');
     saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); refreshScopedViews(); showPage('作品'); notify('作品已删除');
-  } else {
+  } else if (pendingDeletion.type === 'chapter') {
     books[pendingDeletion.book].chapters.splice(pendingDeletion.chapter, 1);
     activeChapterIndex = null; saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); renderChapters(); showPage('章节'); notify('章节已删除');
+  } else {
+    books[pendingDeletion.book].materials.splice(pendingDeletion.material, 1);
+    saveBooks(); closeDeleteModal(); renderMaterials(); notify('素材已删除');
   }
 }
 function exportBook(name) { const book = books[name]; return `墨间 · 稿件导出\n\n《${name}》\n${book.genre ? `题材：${book.genre}\n` : ''}${bookCount(book)}\n\n${book.chapters.map((item, index) => `第 ${index + 1} 章  ${item.title}\n${item.status || '草稿'} · ${(item.words || 0).toLocaleString()} 字\n`).join('\n')}`; }
