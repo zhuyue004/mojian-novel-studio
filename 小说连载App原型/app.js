@@ -19,6 +19,7 @@ let activeBook = localStorage.getItem('mojian-active-book');
 let activeChapterIndex = null;
 let activeMaterialFilter = '全部';
 let pendingDeletion = null;
+let characterEditMode = false;
 let applyingCloudState = false;
 let cloudSaveTimer = null;
 
@@ -120,6 +121,7 @@ function showWorkDetails(name) {
 }
 function renderCharacters() {
   const items = scoped('characters');
+  document.querySelector('#characterEditButton').textContent = characterEditMode ? '完成' : '编辑';
   document.querySelector('#characterWorkContext').textContent = contextName();
   document.querySelector('#characterFormContext').textContent = contextName();
   document.querySelector('#characterCount').textContent = activeBook ? (items.length ? `${items.length} 个角色` : '还没有角色') : '选择作品后查看';
@@ -131,7 +133,7 @@ function renderCharacters() {
     if (visited.has(item.name)) return '';
     const next = new Set(visited); next.add(item.name);
     const children = items.filter(child => child.relatedTo === item.name);
-    return `<li><div class="graph-node"><button class="graph-delete" data-character-index="${items.indexOf(item)}">删除</button><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.role)}</p>${item.relation ? `<span class="graph-relation">${escapeHtml(item.relation)}</span>` : ''}</div>${children.length ? `<ul>${children.map(child => renderNode(child, next)).join('')}</ul>` : ''}</li>`;
+    return `<li><div class="graph-node">${characterEditMode ? `<button class="graph-delete" data-character-index="${items.indexOf(item)}">删除</button>` : ''}<h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.role)}</p>${item.relation ? `<span class="graph-relation">${escapeHtml(item.relation)}</span>` : ''}</div>${children.length ? `<ul>${children.map(child => renderNode(child, next)).join('')}</ul>` : ''}</li>`;
   };
   graph.innerHTML = `<ul class="graph-tree">${roots.map(item => renderNode(item)).join('')}</ul>`;
   document.querySelectorAll('.graph-delete').forEach(button => button.addEventListener('click', () => requestDeletion('character', Number(button.dataset.characterIndex))));
@@ -218,6 +220,7 @@ document.querySelector('#outlineForm').addEventListener('submit', event => { eve
 document.querySelector('#materialForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('materials').unshift({ type: document.querySelector('#materialType').value, title: document.querySelector('#materialTitle').value.trim(), content: document.querySelector('#materialContent').value.trim(), tags: document.querySelector('#materialTags').value.trim() }); saveBooks(); renderMaterials(); event.target.reset(); showPage('素材'); notify('素材已保存到当前作品'); });
 document.querySelectorAll('[data-close-tool]').forEach(button => button.addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); }));
 document.querySelector('#characterAddButton').addEventListener('click', openCharacterForm);
+document.querySelector('#characterEditButton').addEventListener('click', () => { characterEditMode = !characterEditMode; renderCharacters(); });
 document.querySelector('#characterBack').addEventListener('click', () => openTool('#charactersPage'));
 document.querySelector('#newWorkButton').addEventListener('click', openNewWork); document.querySelector('#newWorkBack').addEventListener('click', () => showPage('作品')); document.querySelector('#newMaterialButton').addEventListener('click', openMaterialForm); document.querySelector('#materialBack').addEventListener('click', () => showPage('素材'));
 document.querySelectorAll('#materialFilters button').forEach(button => button.addEventListener('click', () => { activeMaterialFilter = button.dataset.filter; document.querySelector('#materialFilters .active')?.classList.remove('active'); button.classList.add('active'); renderMaterials(); }));
