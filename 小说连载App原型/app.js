@@ -7,10 +7,12 @@ const detailPage = document.querySelector('.detail-page');
 const addWorkPage = document.querySelector('.add-work-page');
 const materialsPage = document.querySelector('.materials-page');
 const addMaterialPage = document.querySelector('.add-material-page');
+const trashPage = document.querySelector('.trash-page');
 const toolPages = document.querySelectorAll('.tool-page');
 const bookMenu = document.querySelector('#bookMenu');
 const chapterList = document.querySelector('.chapter-list');
 const books = JSON.parse(localStorage.getItem('mojian-books') || '{}');
+let trash = JSON.parse(localStorage.getItem('mojian-trash') || '[]');
 let activeBook = localStorage.getItem('mojian-active-book');
 let activeChapterIndex = null;
 let activeMaterialFilter = '全部';
@@ -25,6 +27,7 @@ Object.values(books).forEach(book => {
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1800); }
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); }
+function saveTrash() { localStorage.setItem('mojian-trash', JSON.stringify(trash)); }
 function bookCount(book) { const chapters = book.chapters || []; const words = chapters.reduce((sum, item) => sum + (item.words || 0), 0); return `共 ${chapters.length} 章 · ${words.toLocaleString()} 字`; }
 function setActiveBook(name) { if (!name || !books[name]) return false; activeBook = name; localStorage.setItem('mojian-active-book', name); return true; }
 function scoped(key) { return activeBook && books[activeBook] ? books[activeBook][key] : []; }
@@ -33,8 +36,8 @@ function ensureActiveBook() { const names = Object.keys(books); if (!books[activ
 
 function showPage(page) {
   const chapters = page === '章节'; const settings = page === '设置'; const materials = page === '素材';
-  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material');
-  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
+  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash');
+  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   if (!chapters) bookMenu.hidden = true;
 }
 function openTool(id) { if (!ensureActiveBook()) { notify('请先创建并选择一部作品'); return; } refreshScopedViews(); showPage('作品'); screen.classList.add('show-tool'); document.querySelector(id).classList.add('is-visible'); }
@@ -66,7 +69,7 @@ function renderWorkList() {
 }
 function showWorkDetails(name) {
   if (!setActiveBook(name)) return; refreshScopedViews(); const book = books[name];
-  screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool', 'show-editor', 'show-add-work', 'show-add-material'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
+  screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool', 'show-editor', 'show-add-work', 'show-add-material', 'show-trash'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); trashPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   screen.classList.add('show-detail'); detailPage.classList.add('is-visible');
   document.querySelector('#detailTitle').textContent = name; document.querySelector('#detailGenre').textContent = book.genre || '未填写题材'; document.querySelector('#detailGenreInfo').textContent = book.genre || '未填写'; document.querySelector('#detailChapters').textContent = book.chapters.length; document.querySelector('#detailWords').textContent = book.chapters.reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString();
   document.querySelector('#detailCreatedAt').textContent = `创建于 ${formatDate(book.createdAt)}`; document.querySelector('#detailUpdated').textContent = book.updatedAt ? formatDate(book.updatedAt) : '暂无修改';
@@ -80,6 +83,21 @@ function refreshScopedViews() { renderCharacters(); renderTimeline(); renderOutl
 function openEditor(index) { if (!ensureActiveBook()) return; activeChapterIndex = index; const chapter = books[activeBook].chapters[index]; screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible')); screen.classList.add('show-editor'); editorPage.classList.add('is-visible'); document.querySelector('#chapterTitleInput').value = chapter.title || ''; document.querySelector('#chapterBodyInput').value = chapter.body || ''; updateEditorMeta(); }
 function updateEditorMeta() { if (activeChapterIndex === null || !books[activeBook]) return; const chapter = books[activeBook].chapters[activeChapterIndex]; chapter.title = document.querySelector('#chapterTitleInput').value.trim() || '未命名章节'; chapter.body = document.querySelector('#chapterBodyInput').value; chapter.words = chapter.body.replace(/\s/g, '').length; chapter.status = '草稿'; books[activeBook].updatedAt = new Date().toISOString(); saveBooks(); document.querySelector('#wordCount').textContent = `${chapter.words.toLocaleString()} 字`; document.querySelector('#editorState').textContent = '已自动保存'; }
 function closeEditor() { updateEditorMeta(); renderBookControls(); renderChapters(); showPage('章节'); chaptersPage.classList.add('is-visible'); screen.classList.add('show-chapters'); }
+function moveToTrash(type, workName, data, index = null) { trash.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, type, workName, data, index, deletedAt: new Date().toISOString() }); saveTrash(); renderTrash(); }
+function trashLabel(record) { return record.type === 'work' ? '作品' : record.type === 'chapter' ? '章节' : '素材'; }
+function renderTrash() {
+  document.querySelector('#trashCount').textContent = trash.length ? `${trash.length} 项可恢复内容` : '暂无已删除内容';
+  const groups = trash.reduce((result, item) => { (result[item.workName] ||= []).push(item); return result; }, {});
+  document.querySelector('#trashList').innerHTML = trash.length ? Object.entries(groups).map(([name, items]) => `<section class="trash-group"><h2>《${escapeHtml(name)}》</h2>${items.map(item => `<article class="trash-item"><div><h3>${trashLabel(item)} · ${escapeHtml(item.type === 'work' ? name : item.data.title || '未命名')}</h3><p>删除于 ${formatDate(item.deletedAt)}</p></div><button class="restore-button" data-trash-id="${item.id}">还原</button></article>`).join('')}</section>`).join('') : '<div class="trash-empty"><b>♲</b>回收站为空</div>';
+  document.querySelectorAll('.restore-button').forEach(button => button.addEventListener('click', () => restoreTrash(button.dataset.trashId)));
+}
+function openTrash() { showPage('作品'); screen.classList.add('show-trash'); trashPage.classList.add('is-visible'); renderTrash(); }
+function restoreTrash(id) {
+  const index = trash.findIndex(item => item.id === id); const item = trash[index]; if (!item) return;
+  if (item.type === 'work') { if (books[item.workName]) { notify('同名作品已存在，无法还原'); return; } books[item.workName] = item.data; setActiveBook(item.workName); }
+  else { if (!books[item.workName]) { notify('请先还原所属作品'); return; } const list = item.type === 'chapter' ? books[item.workName].chapters : books[item.workName].materials; list.splice(Math.min(item.index ?? list.length, list.length), 0, item.data); }
+  trash.splice(index, 1); saveTrash(); saveBooks(); renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash(); notify('已还原');
+}
 function requestDeletion(type, materialIndex = null) {
   if (!activeBook || (type === 'chapter' && activeChapterIndex === null) || (type === 'material' && materialIndex === null)) return;
   const code = String(Math.floor(1000 + Math.random() * 9000));
@@ -96,14 +114,17 @@ function closeDeleteModal() { pendingDeletion = null; document.querySelector('#d
 function confirmDeletion() {
   if (!pendingDeletion) return;
   if (pendingDeletion.type === 'work') {
+    moveToTrash('work', pendingDeletion.book, books[pendingDeletion.book]);
     delete books[pendingDeletion.book];
     activeBook = Object.keys(books)[0] || null;
     if (activeBook) localStorage.setItem('mojian-active-book', activeBook); else localStorage.removeItem('mojian-active-book');
     saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); refreshScopedViews(); showPage('作品'); notify('作品已删除');
   } else if (pendingDeletion.type === 'chapter') {
+    moveToTrash('chapter', pendingDeletion.book, books[pendingDeletion.book].chapters[pendingDeletion.chapter], pendingDeletion.chapter);
     books[pendingDeletion.book].chapters.splice(pendingDeletion.chapter, 1);
     activeChapterIndex = null; saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); renderChapters(); showPage('章节'); notify('章节已删除');
   } else {
+    moveToTrash('material', pendingDeletion.book, books[pendingDeletion.book].materials[pendingDeletion.material], pendingDeletion.material);
     books[pendingDeletion.book].materials.splice(pendingDeletion.material, 1);
     saveBooks(); closeDeleteModal(); renderMaterials(); notify('素材已删除');
   }
@@ -115,6 +136,8 @@ document.querySelector('#workForm').addEventListener('submit', event => { event.
 const syncToggle = document.querySelector('#syncToggle'); const syncStatus = document.querySelector('#syncStatus'); const syncOn = localStorage.getItem('mojian-sync') !== 'off'; syncToggle.checked = syncOn; syncStatus.textContent = syncOn ? '已开启 · 联网时将自动备份稿件' : '已关闭 · 稿件仅保存在此设备';
 syncToggle.addEventListener('change', () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); syncStatus.textContent = enabled ? '已开启 · 联网时将自动备份稿件' : '已关闭 · 稿件仅保存在此设备'; notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
 document.querySelector('#exportButton').addEventListener('click', () => { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } downloadText(names.map(exportBook).join('\n\n'), '墨间-全部稿件.txt'); notify('已导出全部稿件'); });
+document.querySelector('#trashOpen').addEventListener('click', openTrash);
+document.querySelector('#trashBack').addEventListener('click', () => showPage('设置'));
 document.querySelector('#characterForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('characters').unshift({ name: document.querySelector('#characterName').value.trim(), role: document.querySelector('#characterRole').value.trim(), note: document.querySelector('#characterNote').value.trim() }); saveBooks(); renderCharacters(); event.target.reset(); notify('角色设定已保存到当前作品'); });
 document.querySelector('#timelineForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('events').push({ time: document.querySelector('#eventTime').value.trim(), title: document.querySelector('#eventTitle').value.trim(), note: document.querySelector('#eventNote').value.trim() }); saveBooks(); renderTimeline(); event.target.reset(); notify('时间线已保存到当前作品'); });
 document.querySelector('#outlineForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('outlines').unshift({ title: document.querySelector('#outlineTitle').value.trim(), chapter: document.querySelector('#outlineChapter').value.trim(), note: document.querySelector('#outlineNote').value.trim(), status: document.querySelector('#outlineStatus').value }); saveBooks(); renderOutlines(); event.target.reset(); notify('剧情大纲已保存到当前作品'); });
@@ -135,5 +158,5 @@ document.querySelector('#deleteConfirm').addEventListener('click', confirmDeleti
 document.querySelector('#bookSwitch').addEventListener('click', () => { bookMenu.hidden = !bookMenu.hidden; });
 document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#outlinePage'); }));
 document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); if (button.dataset.page === '章节') renderChapters(); if (button.dataset.page === '素材') refreshScopedViews(); }));
-renderBookControls(); renderWorkList(); refreshScopedViews();
+renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash();
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
