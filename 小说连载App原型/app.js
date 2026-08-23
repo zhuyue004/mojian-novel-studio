@@ -40,7 +40,7 @@ function openMaterialForm() { if (!ensureActiveBook()) { notify('请先创建并
 
 function renderBookControls() {
   const names = Object.keys(books); const ready = ensureActiveBook();
-  document.querySelector('#bookSwitch').disabled = !ready; document.querySelector('#newChapterButton').disabled = !ready;
+  document.querySelector('#bookSwitch').disabled = !ready; document.querySelector('#newChapterButton').disabled = false;
   bookMenu.innerHTML = names.map(name => `<button data-book="${escapeHtml(name)}">${escapeHtml(name)} <small>${bookCount(books[name])}</small></button>`).join('');
   document.querySelectorAll('#bookMenu button').forEach(button => button.addEventListener('click', () => { setActiveBook(button.dataset.book); renderChapters(); refreshScopedViews(); bookMenu.hidden = true; }));
   const materialSelect = document.querySelector('#materialBookSelect');
@@ -92,7 +92,7 @@ document.querySelectorAll('[data-close-tool]').forEach(button => button.addEvent
 document.querySelector('#newWorkButton').addEventListener('click', openNewWork); document.querySelector('#newWorkBack').addEventListener('click', () => showPage('作品')); document.querySelector('#newMaterialButton').addEventListener('click', openMaterialForm); document.querySelector('#materialBack').addEventListener('click', () => showPage('素材'));
 document.querySelectorAll('#materialFilters button').forEach(button => button.addEventListener('click', () => { activeMaterialFilter = button.dataset.filter; document.querySelector('#materialFilters .active')?.classList.remove('active'); button.classList.add('active'); renderMaterials(); }));
 document.querySelector('#materialBookSelect').addEventListener('change', event => { setActiveBook(event.target.value); renderBookControls(); refreshScopedViews(); });
-document.querySelector('#newChapterButton').addEventListener('click', () => { if (!ensureActiveBook()) return; books[activeBook].chapters.push({ title: '未命名章节', body: '', words: 0, status: '草稿' }); saveBooks(); openEditor(books[activeBook].chapters.length - 1); });
+document.querySelector('#newChapterButton').addEventListener('click', () => { if (!ensureActiveBook()) { notify('请先在作品页创建或选择一部作品'); return; } books[activeBook].chapters.push({ title: '未命名章节', body: '', words: 0, status: '草稿' }); saveBooks(); openEditor(books[activeBook].chapters.length - 1); });
 document.querySelector('#chapterTitleInput').addEventListener('input', updateEditorMeta); document.querySelector('#chapterBodyInput').addEventListener('input', updateEditorMeta); document.querySelector('#editorBack').addEventListener('click', closeEditor); document.querySelector('#chapterDone').addEventListener('click', () => { updateEditorMeta(); notify('章节已保存'); closeEditor(); });
 document.querySelector('#detailBack').addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); });
 document.querySelector('#detailOpenChapters').addEventListener('click', () => { renderChapters(); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="章节"]').classList.add('active'); showPage('章节'); });
