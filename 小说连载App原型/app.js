@@ -9,6 +9,7 @@ const materialsPage = document.querySelector('.materials-page');
 const addMaterialPage = document.querySelector('.add-material-page');
 const trashPage = document.querySelector('.trash-page');
 const syncPage = document.querySelector('.sync-page');
+const publishPage = document.querySelector('.publish-page');
 const characterFormPage = document.querySelector('.add-character-page');
 const toolPages = document.querySelectorAll('.tool-page');
 const bookMenu = document.querySelector('#bookMenu');
@@ -23,6 +24,7 @@ let pendingDeletion = null;
 let characterEditMode = false;
 let editingCharacterIndex = null;
 let editingEventIndex = null;
+let publishingChapterIndex = null;
 let applyingCloudState = false;
 let cloudSaveTimer = null;
 
@@ -82,11 +84,12 @@ async function initialiseCloud() {
   } catch (error) { setSyncStatus('云端未初始化，请运行建表脚本'); }
 }
 function openSyncPage() { showPage('作品'); screen.classList.add('show-sync'); syncPage.classList.add('is-visible'); }
+function openPublishPage() { if (!ensureActiveBook()) { notify('请先创建一部作品'); return; } showPage('作品'); screen.classList.add('show-publish'); publishPage.classList.add('is-visible'); renderPublishQueue(); }
 
 function showPage(page) {
   const chapters = page === '章节'; const settings = page === '设置'; const materials = page === '素材';
-  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash', 'show-sync', 'show-add-character');
-  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); syncPage.classList.remove('is-visible'); characterFormPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
+  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash', 'show-sync', 'show-add-character', 'show-publish');
+  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); syncPage.classList.remove('is-visible'); publishPage.classList.remove('is-visible'); characterFormPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   if (!chapters) bookMenu.hidden = true;
   toolBookMenu.hidden = true;
 }
@@ -124,6 +127,8 @@ function renderChapters() {
 }
 function formatDate(value) { const date = value ? new Date(value) : new Date(); return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日`; }
 function renderDashboard() { const today = new Date().toDateString(); const chapters = Object.values(books).flatMap(book => book.chapters || []); document.querySelector('#dashboardWords').textContent = chapters.reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString(); document.querySelector('#dashboardPending').textContent = chapters.filter(item => item.status === '待发布').length; document.querySelector('#dashboardToday').textContent = chapters.filter(item => item.updatedAt && new Date(item.updatedAt).toDateString() === today).reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString(); }
+function renderPublishQueue() { const select = document.querySelector('#publishBookSelect'); const names = Object.keys(books); select.innerHTML = names.map(name => `<option ${name === activeBook ? 'selected' : ''}>${escapeHtml(name)}</option>`).join(''); const chapters = scoped('chapters'); const list = chapters.map((chapter, index) => ({ chapter, index })).filter(({ chapter }) => chapter.status === '待发布' || chapter.status === '已发布'); document.querySelector('#publishQueue').innerHTML = list.length ? list.map(({ chapter, index }) => { const latest = chapter.publishRecords?.at(-1); return `<article class="publish-item"><div><span class="chapter-status ${chapter.status}">${chapter.status}</span><h3>第 ${index + 1} 章 · ${escapeHtml(chapter.title)}</h3><p>${latest ? `${escapeHtml(latest.platform || '未填写平台')} · ${formatDate(latest.publishedAt)}` : chapter.status === '待发布' ? '准备发布，尚未填写记录' : '暂无发布记录'}</p>${latest?.url ? `<a href="${escapeHtml(latest.url)}" target="_blank" rel="noopener">查看发布链接</a>` : ''}</div><button class="publish-record" data-chapter-index="${index}">${chapter.status === '已发布' ? '补充记录' : '记录发布'}</button></article>`; }).join('') : '<div class="publish-empty"><b>↑</b>还没有待发布或已发布章节。<br>在编辑器将章节状态设为“待发布”后，它会出现在这里。</div>'; document.querySelectorAll('.publish-record').forEach(button => button.addEventListener('click', () => openPublishForm(Number(button.dataset.chapterIndex)))); }
+function openPublishForm(index) { const chapter = scoped('chapters')[index]; if (!chapter) return; publishingChapterIndex = index; const latest = chapter.publishRecords?.at(-1); document.querySelector('#publishFormTitle').textContent = `记录：${chapter.title}`; document.querySelector('#publishPlatform').value = latest?.platform || ''; document.querySelector('#publishedAt').value = latest?.publishedAt ? new Date(latest.publishedAt).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16); document.querySelector('#publishUrl').value = latest?.url || ''; document.querySelector('#publishForm').hidden = false; document.querySelector('#publishPlatform').focus(); document.querySelector('#publishForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 function renderWorkList() {
   const names = Object.keys(books); document.querySelector('#workTotal').textContent = `${names.length} 部`;
   document.querySelector('#workList').innerHTML = names.map(name => { const book = books[name]; return `<button class="work-item" data-work="${escapeHtml(name)}"><span class="work-item-cover">${escapeHtml(name.slice(0, 1))}</span><span><h3>${escapeHtml(name)}</h3><p>${escapeHtml(book.genre || '未填写题材')} · ${bookCount(book)}</p></span><b>›</b></button>`; }).join('');
@@ -238,6 +243,13 @@ document.querySelector('#workForm').addEventListener('submit', event => { event.
 const syncToggle = document.querySelector('#syncToggle'); const syncOn = localStorage.getItem('mojian-sync') !== 'off'; syncToggle.checked = syncOn; setSyncStatus('需登录同步账户');
 syncToggle.addEventListener('change', async () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); const user = window.mojianCloud ? await window.mojianCloud.getUser() : null; renderSyncAccount(user); if (enabled && user) queueCloudSave(); notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
 document.querySelector('#exportButton').addEventListener('click', () => { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } const checks = names.flatMap(name => publishChecks(name).map(item => `《${name}》：${item}`)); const report = checks.length ? `\n\n--- 发布前检查 ---\n${checks.map(item => `- ${item}`).join('\n')}` : '\n\n--- 发布前检查 ---\n全部通过'; downloadText(names.map(exportBook).join('\n\n') + report, '墨间-全部稿件.txt'); notify(checks.length ? `已导出，附 ${checks.length} 条发布提醒` : '已导出全部稿件，检查通过'); });
+document.querySelector('#publishOpen').addEventListener('click', openPublishPage);
+document.querySelector('#publishBack').addEventListener('click', () => showPage('设置'));
+document.querySelector('#publishBookSelect').addEventListener('change', event => { setActiveBook(event.target.value); renderBookControls(); refreshScopedViews(); renderPublishQueue(); });
+document.querySelector('#publishForm').addEventListener('submit', event => { event.preventDefault(); const chapter = scoped('chapters')[publishingChapterIndex]; if (!chapter) return; chapter.status = '已发布'; (chapter.publishRecords ||= []).push({ platform: document.querySelector('#publishPlatform').value.trim(), publishedAt: document.querySelector('#publishedAt').value || new Date().toISOString(), url: document.querySelector('#publishUrl').value.trim() }); saveBooks(); renderDashboard(); event.target.reset(); event.target.hidden = true; publishingChapterIndex = null; renderPublishQueue(); notify('发布记录已保存'); });
+document.querySelector('#backupExport').addEventListener('click', () => { downloadText(JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...cloudState() }, null, 2), `墨间-本地备份-${new Date().toISOString().slice(0, 10)}.json`); notify('完整备份已导出'); });
+document.querySelector('#backupImport').addEventListener('click', () => document.querySelector('#backupFile').click());
+document.querySelector('#backupFile').addEventListener('change', event => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(reader.result); if (!data?.books || !confirm('导入会覆盖当前所有本地内容，确定继续吗？')) return; applyCloudState(data); notify('本地备份已导入'); } catch { notify('备份文件无效，无法导入'); } finally { event.target.value = ''; } }; reader.readAsText(file); });
 document.querySelector('#trashOpen').addEventListener('click', openTrash);
 document.querySelector('#trashBack').addEventListener('click', () => showPage('设置'));
 document.querySelector('#syncAccountOpen').addEventListener('click', openSyncPage);
