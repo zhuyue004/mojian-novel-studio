@@ -9,6 +9,7 @@ const materialsPage = document.querySelector('.materials-page');
 const addMaterialPage = document.querySelector('.add-material-page');
 const trashPage = document.querySelector('.trash-page');
 const syncPage = document.querySelector('.sync-page');
+const characterFormPage = document.querySelector('.add-character-page');
 const toolPages = document.querySelectorAll('.tool-page');
 const bookMenu = document.querySelector('#bookMenu');
 const chapterList = document.querySelector('.chapter-list');
@@ -79,8 +80,8 @@ function openSyncPage() { showPage('作品'); screen.classList.add('show-sync');
 
 function showPage(page) {
   const chapters = page === '章节'; const settings = page === '设置'; const materials = page === '素材';
-  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash', 'show-sync');
-  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); syncPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
+  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash', 'show-sync', 'show-add-character');
+  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); syncPage.classList.remove('is-visible'); characterFormPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   if (!chapters) bookMenu.hidden = true;
 }
 function openTool(id) { if (!ensureActiveBook()) { notify('请先创建并选择一部作品'); return; } refreshScopedViews(); showPage('作品'); screen.classList.add('show-tool'); document.querySelector(id).classList.add('is-visible'); }
@@ -117,7 +118,30 @@ function showWorkDetails(name) {
   document.querySelector('#detailTitle').textContent = name; document.querySelector('#detailGenre').textContent = book.genre || '未填写题材'; document.querySelector('#detailGenreInfo').textContent = book.genre || '未填写'; document.querySelector('#detailChapters').textContent = book.chapters.length; document.querySelector('#detailWords').textContent = book.chapters.reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString();
   document.querySelector('#detailCreatedAt').textContent = `创建于 ${formatDate(book.createdAt)}`; document.querySelector('#detailUpdated').textContent = book.updatedAt ? formatDate(book.updatedAt) : '暂无修改';
 }
-function renderCharacters() { const items = scoped('characters'); document.querySelector('#characterWorkContext').textContent = contextName(); document.querySelector('#characterList').innerHTML = items.map(item => `<article class="character-item"><h3>${escapeHtml(item.name)}</h3><span>${escapeHtml(item.role)}</span><p>${escapeHtml(item.note || '暂无补充设定')}</p></article>`).join(''); document.querySelector('#characterCount').textContent = activeBook ? (items.length ? `${items.length} 个角色` : '还没有角色') : '选择作品后查看'; }
+function renderCharacters() {
+  const items = scoped('characters');
+  document.querySelector('#characterWorkContext').textContent = contextName();
+  document.querySelector('#characterFormContext').textContent = contextName();
+  document.querySelector('#characterCount').textContent = activeBook ? (items.length ? `${items.length} 个角色` : '还没有角色') : '选择作品后查看';
+  const graph = document.querySelector('#characterGraph');
+  if (!activeBook || !items.length) { graph.innerHTML = `<div class="graph-empty"><b>◎</b>${activeBook ? '还没有角色，点击右上角新增第一个角色。' : '请先选择一部作品。'}</div>`; return; }
+  const names = new Set(items.map(item => item.name));
+  const roots = items.filter(item => !item.relatedTo || !names.has(item.relatedTo));
+  const renderNode = (item, visited = new Set()) => {
+    if (visited.has(item.name)) return '';
+    const next = new Set(visited); next.add(item.name);
+    const children = items.filter(child => child.relatedTo === item.name);
+    return `<li><div class="graph-node"><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.role)}</p>${item.relation ? `<span class="graph-relation">${escapeHtml(item.relation)}</span>` : ''}</div>${children.length ? `<ul>${children.map(child => renderNode(child, next)).join('')}</ul>` : ''}</li>`;
+  };
+  graph.innerHTML = `<ul class="graph-tree">${roots.map(item => renderNode(item)).join('')}</ul>`;
+}
+function openCharacterForm() {
+  if (!ensureActiveBook()) { notify('请先创建并选择一部作品'); return; }
+  const select = document.querySelector('#characterRelated');
+  select.innerHTML = '<option value="">暂无关联 / 核心角色</option>' + scoped('characters').map(item => `<option>${escapeHtml(item.name)}</option>`).join('');
+  document.querySelector('#characterFormContext').textContent = contextName();
+  showPage('作品'); screen.classList.add('show-add-character'); characterFormPage.classList.add('is-visible');
+}
 function renderTimeline() { const items = scoped('events'); document.querySelector('#timelineWorkContext').textContent = contextName(); document.querySelector('#timelineList').innerHTML = items.map(item => `<article class="timeline-item"><time>${escapeHtml(item.time)}</time><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.note || '暂无补充说明')}</p></article>`).join(''); document.querySelector('#eventCount').textContent = activeBook ? (items.length ? `${items.length} 条事件` : '还没有事件') : '选择作品后查看'; }
 function renderOutlines() { const items = scoped('outlines'); document.querySelector('#outlineWorkContext').textContent = contextName(); document.querySelector('#outlineList').innerHTML = items.map(item => `<article class="outline-item"><div class="outline-item-head"><h3>${escapeHtml(item.title)}</h3><span>${escapeHtml(item.status)}</span></div><p>${escapeHtml(item.note || '暂无补充说明')}</p><small>${escapeHtml(item.chapter || '未关联章节')}</small></article>`).join(''); document.querySelector('#outlineCount').textContent = activeBook ? (items.length ? `${items.length} 条情节` : '还没有情节') : '选择作品后查看'; }
 function renderMaterials() { const items = scoped('materials'); const list = (activeMaterialFilter === '全部' ? items : items.filter(item => item.type === activeMaterialFilter)).map(item => ({ item, index: items.indexOf(item) })); document.querySelector('#materialList').innerHTML = activeBook && list.length ? list.map(({ item, index }) => `<article class="material-item"><span class="material-item-head"><span class="material-type">${escapeHtml(item.type)}</span><span class="material-work">${escapeHtml(activeBook)}</span></span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.content)}</p>${item.tags ? `<span class="material-tags"># ${escapeHtml(item.tags)}</span>` : ''}<button class="material-delete" data-material-index="${index}">删除</button></article>`).join('') : `<div class="material-empty"><b>◇</b>${activeBook ? `还没有${activeMaterialFilter === '全部' ? '素材' : activeMaterialFilter + '素材'}，点击右上角新增一条吧。` : '请选择或创建一部作品。'}</div>`; document.querySelectorAll('.material-delete').forEach(button => button.addEventListener('click', () => requestDeletion('material', Number(button.dataset.materialIndex)))); }
@@ -186,11 +210,13 @@ document.querySelector('#syncBack').addEventListener('click', () => showPage('�
 document.querySelector('#syncForm').addEventListener('submit', async event => { event.preventDefault(); try { const user = await window.mojianCloud.signIn(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); renderSyncAccount(user); const remote = await window.mojianCloud.loadState(); if (remote?.books) applyCloudState(remote); else queueCloudSave(); notify('登录成功，已开始同步'); } catch (error) { notify(error.message || '登录失败'); } });
 document.querySelector('#syncSignUp').addEventListener('click', async () => { try { const user = await window.mojianCloud.signUp(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); if (user) { renderSyncAccount(user); queueCloudSave(); notify('注册成功，已开始同步'); } else notify('请查收邮箱验证邮件后再登录'); } catch (error) { notify(error.message || '注册失败'); } });
 document.querySelector('#syncSignOut').addEventListener('click', async () => { try { await window.mojianCloud.signOut(); renderSyncAccount(null); notify('已退出同步账户'); } catch (error) { notify('退出失败'); } });
-document.querySelector('#characterForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('characters').unshift({ name: document.querySelector('#characterName').value.trim(), role: document.querySelector('#characterRole').value.trim(), note: document.querySelector('#characterNote').value.trim() }); saveBooks(); renderCharacters(); event.target.reset(); notify('角色设定已保存到当前作品'); });
+document.querySelector('#characterForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('characters').push({ name: document.querySelector('#characterName').value.trim(), role: document.querySelector('#characterRole').value.trim(), relatedTo: document.querySelector('#characterRelated').value, relation: document.querySelector('#characterRelation').value.trim(), note: document.querySelector('#characterNote').value.trim() }); saveBooks(); renderCharacters(); event.target.reset(); openTool('#charactersPage'); notify('角色已加入人物谱系图'); });
 document.querySelector('#timelineForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('events').push({ time: document.querySelector('#eventTime').value.trim(), title: document.querySelector('#eventTitle').value.trim(), note: document.querySelector('#eventNote').value.trim() }); saveBooks(); renderTimeline(); event.target.reset(); notify('时间线已保存到当前作品'); });
 document.querySelector('#outlineForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('outlines').unshift({ title: document.querySelector('#outlineTitle').value.trim(), chapter: document.querySelector('#outlineChapter').value.trim(), note: document.querySelector('#outlineNote').value.trim(), status: document.querySelector('#outlineStatus').value }); saveBooks(); renderOutlines(); event.target.reset(); notify('剧情大纲已保存到当前作品'); });
 document.querySelector('#materialForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('materials').unshift({ type: document.querySelector('#materialType').value, title: document.querySelector('#materialTitle').value.trim(), content: document.querySelector('#materialContent').value.trim(), tags: document.querySelector('#materialTags').value.trim() }); saveBooks(); renderMaterials(); event.target.reset(); showPage('素材'); notify('素材已保存到当前作品'); });
 document.querySelectorAll('[data-close-tool]').forEach(button => button.addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); }));
+document.querySelector('#characterAddButton').addEventListener('click', openCharacterForm);
+document.querySelector('#characterBack').addEventListener('click', () => openTool('#charactersPage'));
 document.querySelector('#newWorkButton').addEventListener('click', openNewWork); document.querySelector('#newWorkBack').addEventListener('click', () => showPage('作品')); document.querySelector('#newMaterialButton').addEventListener('click', openMaterialForm); document.querySelector('#materialBack').addEventListener('click', () => showPage('素材'));
 document.querySelectorAll('#materialFilters button').forEach(button => button.addEventListener('click', () => { activeMaterialFilter = button.dataset.filter; document.querySelector('#materialFilters .active')?.classList.remove('active'); button.classList.add('active'); renderMaterials(); }));
 document.querySelector('#materialBookSelect').addEventListener('change', event => { setActiveBook(event.target.value); renderBookControls(); refreshScopedViews(); });
