@@ -14,6 +14,9 @@ const books = JSON.parse(localStorage.getItem('mojian-books') || '{}');
 let activeBook = localStorage.getItem('mojian-active-book');
 let activeChapterIndex = null;
 let activeMaterialFilter = '全部';
+let pendingDeletion = null;
+
+document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
 
 Object.values(books).forEach(book => {
   book.chapters ||= []; book.characters ||= []; book.events ||= []; book.outlines ||= []; book.materials ||= [];
@@ -77,6 +80,31 @@ function refreshScopedViews() { renderCharacters(); renderTimeline(); renderOutl
 function openEditor(index) { if (!ensureActiveBook()) return; activeChapterIndex = index; const chapter = books[activeBook].chapters[index]; screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible')); screen.classList.add('show-editor'); editorPage.classList.add('is-visible'); document.querySelector('#chapterTitleInput').value = chapter.title || ''; document.querySelector('#chapterBodyInput').value = chapter.body || ''; updateEditorMeta(); }
 function updateEditorMeta() { if (activeChapterIndex === null || !books[activeBook]) return; const chapter = books[activeBook].chapters[activeChapterIndex]; chapter.title = document.querySelector('#chapterTitleInput').value.trim() || '未命名章节'; chapter.body = document.querySelector('#chapterBodyInput').value; chapter.words = chapter.body.replace(/\s/g, '').length; chapter.status = '草稿'; books[activeBook].updatedAt = new Date().toISOString(); saveBooks(); document.querySelector('#wordCount').textContent = `${chapter.words.toLocaleString()} 字`; document.querySelector('#editorState').textContent = '已自动保存'; }
 function closeEditor() { updateEditorMeta(); renderBookControls(); renderChapters(); showPage('章节'); chaptersPage.classList.add('is-visible'); screen.classList.add('show-chapters'); }
+function requestDeletion(type) {
+  if (!activeBook || (type === 'chapter' && activeChapterIndex === null)) return;
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  pendingDeletion = { type, code, book: activeBook, chapter: activeChapterIndex };
+  document.querySelector('#deleteTitle').textContent = type === 'work' ? '删除这部作品？' : '删除这一章？';
+  document.querySelector('#deleteHint').textContent = type === 'work' ? `《${activeBook}》及其全部章节、素材和创作资料将被永久删除。` : '这一章的标题和正文将被永久删除。';
+  document.querySelector('#deleteCode').textContent = code;
+  document.querySelector('#deleteCodeInput').value = '';
+  document.querySelector('#deleteConfirm').disabled = true;
+  document.querySelector('#deleteModal').hidden = false;
+  setTimeout(() => document.querySelector('#deleteCodeInput').focus(), 0);
+}
+function closeDeleteModal() { pendingDeletion = null; document.querySelector('#deleteModal').hidden = true; }
+function confirmDeletion() {
+  if (!pendingDeletion) return;
+  if (pendingDeletion.type === 'work') {
+    delete books[pendingDeletion.book];
+    activeBook = Object.keys(books)[0] || null;
+    if (activeBook) localStorage.setItem('mojian-active-book', activeBook); else localStorage.removeItem('mojian-active-book');
+    saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); refreshScopedViews(); showPage('作品'); notify('作品已删除');
+  } else {
+    books[pendingDeletion.book].chapters.splice(pendingDeletion.chapter, 1);
+    activeChapterIndex = null; saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); renderChapters(); showPage('章节'); notify('章节已删除');
+  }
+}
 function exportBook(name) { const book = books[name]; return `墨间 · 稿件导出\n\n《${name}》\n${book.genre ? `题材：${book.genre}\n` : ''}${bookCount(book)}\n\n${book.chapters.map((item, index) => `第 ${index + 1} 章  ${item.title}\n${item.status || '草稿'} · ${(item.words || 0).toLocaleString()} 字\n`).join('\n')}`; }
 function downloadText(content, filename) { const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); }
 
@@ -94,8 +122,13 @@ document.querySelectorAll('#materialFilters button').forEach(button => button.ad
 document.querySelector('#materialBookSelect').addEventListener('change', event => { setActiveBook(event.target.value); renderBookControls(); refreshScopedViews(); });
 document.querySelector('#newChapterButton').addEventListener('click', () => { if (!ensureActiveBook()) { notify('请先在作品页创建或选择一部作品'); return; } books[activeBook].chapters.push({ title: '未命名章节', body: '', words: 0, status: '草稿' }); saveBooks(); openEditor(books[activeBook].chapters.length - 1); });
 document.querySelector('#chapterTitleInput').addEventListener('input', updateEditorMeta); document.querySelector('#chapterBodyInput').addEventListener('input', updateEditorMeta); document.querySelector('#editorBack').addEventListener('click', closeEditor); document.querySelector('#chapterDone').addEventListener('click', () => { updateEditorMeta(); notify('章节已保存'); closeEditor(); });
+document.querySelector('#chapterDelete').addEventListener('click', () => requestDeletion('chapter'));
 document.querySelector('#detailBack').addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); });
 document.querySelector('#detailOpenChapters').addEventListener('click', () => { renderChapters(); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="章节"]').classList.add('active'); showPage('章节'); });
+document.querySelector('#workDelete').addEventListener('click', () => requestDeletion('work'));
+document.querySelector('#deleteCodeInput').addEventListener('input', event => { document.querySelector('#deleteConfirm').disabled = !pendingDeletion || event.target.value !== pendingDeletion.code; });
+document.querySelector('#deleteCancel').addEventListener('click', closeDeleteModal);
+document.querySelector('#deleteConfirm').addEventListener('click', confirmDeletion);
 document.querySelector('#bookSwitch').addEventListener('click', () => { bookMenu.hidden = !bookMenu.hidden; });
 document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#outlinePage'); }));
 document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); if (button.dataset.page === '章节') renderChapters(); if (button.dataset.page === '素材') refreshScopedViews(); }));
