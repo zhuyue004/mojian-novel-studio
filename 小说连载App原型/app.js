@@ -5,6 +5,8 @@ const chaptersPage = document.querySelector('.chapters-page');
 const editorPage = document.querySelector('.editor-page');
 const detailPage = document.querySelector('.detail-page');
 const addWorkPage = document.querySelector('.add-work-page');
+const materialsPage = document.querySelector('.materials-page');
+const addMaterialPage = document.querySelector('.add-material-page');
 const toolPages = document.querySelectorAll('.tool-page');
 const bookMenu = document.querySelector('#bookMenu');
 const chapterList = document.querySelector('.chapter-list');
@@ -12,17 +14,19 @@ const exportBookSelect = document.querySelector('#exportBook');
 const books = JSON.parse(localStorage.getItem('mojian-books') || '{}');
 const characters = JSON.parse(localStorage.getItem('mojian-characters') || '[]');
 const events = JSON.parse(localStorage.getItem('mojian-events') || '[]');
+const materials = JSON.parse(localStorage.getItem('mojian-materials') || '[]');
 let activeBook = null;
 let activeChapterIndex = null;
+let activeMaterialFilter = '全部';
 
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1800); }
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); }
 function bookCount(book) { const chapters = book.chapters || []; const words = chapters.reduce((sum, item) => sum + (item.words || 0), 0); return `共 ${chapters.length} 章 · ${words.toLocaleString()} 字`; }
 function showPage(page) {
-  const chapters = page === '章节'; const settings = page === '设置';
-  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work');
-  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
+  const chapters = page === '章节'; const settings = page === '设置'; const materialsView = page === '素材';
+  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materialsView); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material');
+  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materialsView); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   if (!chapters) bookMenu.hidden = true;
 }
 function openTool(id) { showPage('作品'); screen.classList.add('show-tool'); document.querySelector(id).classList.add('is-visible'); }
@@ -74,6 +78,17 @@ function showWorkDetails(name) {
   document.querySelector('#detailDays').textContent = `${start.getMonth() + 1}/${start.getDate()}`;
   document.querySelector('#detailUpdated').textContent = book.updatedAt ? formatDate(book.updatedAt) : '暂无修改';
 }
+function renderMaterialWorkOptions() {
+  const select = document.querySelector('#materialWork');
+  select.innerHTML = '<option value="">暂不关联</option>' + Object.keys(books).map(name => `<option>${escapeHtml(name)}</option>`).join('');
+}
+function renderMaterials() {
+  const list = activeMaterialFilter === '全部' ? materials : materials.filter(item => item.type === activeMaterialFilter);
+  document.querySelector('#materialList').innerHTML = list.length ? list.map(item => `<button class="material-item"><span class="material-item-head"><span class="material-type">${escapeHtml(item.type)}</span><span class="material-work">${escapeHtml(item.work || '未关联作品')}</span></span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.content)}</p>${item.tags ? `<span class="material-tags"># ${escapeHtml(item.tags)}</span>` : ''}</button>`).join('') : `<div class="material-empty"><b>◇</b>还没有${activeMaterialFilter === '全部' ? '素材' : activeMaterialFilter + '素材'}，点击右上角新增一条吧。</div>`;
+}
+function openMaterialForm() {
+  showPage('作品'); screen.classList.add('show-add-material'); addMaterialPage.classList.add('is-visible'); renderMaterialWorkOptions();
+}
 function openEditor(index) {
   if (!activeBook || !books[activeBook]) return;
   activeChapterIndex = index;
@@ -117,6 +132,10 @@ document.querySelector('#timelineForm').addEventListener('submit', event => { ev
 document.querySelectorAll('[data-close-tool]').forEach(button => button.addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); }));
 document.querySelector('#newWorkButton').addEventListener('click', openNewWork);
 document.querySelector('#newWorkBack').addEventListener('click', () => showPage('作品'));
+document.querySelector('#newMaterialButton').addEventListener('click', openMaterialForm);
+document.querySelector('#materialBack').addEventListener('click', () => showPage('素材'));
+document.querySelector('#materialForm').addEventListener('submit', event => { event.preventDefault(); materials.unshift({ type: document.querySelector('#materialType').value, title: document.querySelector('#materialTitle').value.trim(), content: document.querySelector('#materialContent').value.trim(), work: document.querySelector('#materialWork').value, tags: document.querySelector('#materialTags').value.trim() }); localStorage.setItem('mojian-materials', JSON.stringify(materials)); renderMaterials(); event.target.reset(); showPage('素材'); notify('素材已保存'); });
+document.querySelectorAll('#materialFilters button').forEach(button => button.addEventListener('click', () => { activeMaterialFilter = button.dataset.filter; document.querySelector('#materialFilters .active')?.classList.remove('active'); button.classList.add('active'); renderMaterials(); }));
 document.querySelector('#newChapterButton').addEventListener('click', () => {
   if (!activeBook || !books[activeBook]) return;
   books[activeBook].chapters.push({ title: '未命名章节', body: '', words: 0, status: '草稿' });
@@ -130,6 +149,6 @@ document.querySelector('#detailBack').addEventListener('click', () => { showPage
 document.querySelector('#detailOpenChapters').addEventListener('click', () => { renderChapters(activeBook); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="章节"]').classList.add('active'); showPage('章节'); });
 document.querySelector('#bookSwitch').addEventListener('click', () => { bookMenu.hidden = !bookMenu.hidden; });
 document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#exportPage'); }));
-document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); const page = button.dataset.page; showPage(page); if (page === '素材') notify('素材库即将开放'); }));
-renderBookControls(); renderWorkList(); renderCharacters(); renderTimeline();
+document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); }));
+renderBookControls(); renderWorkList(); renderCharacters(); renderTimeline(); renderMaterials();
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
