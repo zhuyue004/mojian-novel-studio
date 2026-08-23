@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mojian-v46';
+const CACHE_NAME = 'mojian-v47';
 const APP_SHELL = ['./', './index.html', './styles.css', './dark.css', './app.js', './manifest.webmanifest', './icons/app-icon.svg'];
 
 self.addEventListener('install', event => {
