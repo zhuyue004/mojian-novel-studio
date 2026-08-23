@@ -10,11 +10,11 @@ const addMaterialPage = document.querySelector('.add-material-page');
 const toolPages = document.querySelectorAll('.tool-page');
 const bookMenu = document.querySelector('#bookMenu');
 const chapterList = document.querySelector('.chapter-list');
-const exportBookSelect = document.querySelector('#exportBook');
 const books = JSON.parse(localStorage.getItem('mojian-books') || '{}');
 const characters = JSON.parse(localStorage.getItem('mojian-characters') || '[]');
 const events = JSON.parse(localStorage.getItem('mojian-events') || '[]');
 const materials = JSON.parse(localStorage.getItem('mojian-materials') || '[]');
+const outlines = JSON.parse(localStorage.getItem('mojian-outlines') || '[]');
 let activeBook = null;
 let activeChapterIndex = null;
 let activeMaterialFilter = '全部';
@@ -36,11 +36,8 @@ function renderBookControls() {
   document.querySelector('#bookSwitch').disabled = !canUseBooks;
   document.querySelector('#newChapterButton').disabled = !canUseBooks;
   bookMenu.innerHTML = names.map(name => `<button data-book="${escapeHtml(name)}">${escapeHtml(name)} <small>${bookCount(books[name])}</small></button>`).join('');
-  exportBookSelect.innerHTML = names.map(name => `<option>${escapeHtml(name)}</option>`).join('');
-  exportBookSelect.disabled = !canUseBooks; document.querySelector('#toolExportButton').disabled = !canUseBooks;
   document.querySelectorAll('#bookMenu button').forEach(button => button.addEventListener('click', () => { renderChapters(button.dataset.book); bookMenu.hidden = true; }));
   if (canUseBooks && (!activeBook || !books[activeBook])) renderChapters(names[0]); else if (!canUseBooks) renderChapters(null);
-  renderExportSummary();
 }
 function renderChapters(bookName) {
   activeBook = bookName; const book = bookName ? books[bookName] : null;
@@ -119,16 +116,15 @@ function renderCharacters() { document.querySelector('#characterList').innerHTML
 function renderTimeline() { document.querySelector('#timelineList').innerHTML = events.map(item => `<article class="timeline-item"><time>${escapeHtml(item.time)}</time><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.note || '暂无补充说明')}</p></article>`).join(''); document.querySelector('#eventCount').textContent = events.length ? `${events.length} 条事件` : '还没有事件'; }
 function exportBook(name) { const book = books[name]; return `墨间 · 稿件导出\n\n《${name}》\n${book.genre ? `题材：${book.genre}\n` : ''}${bookCount(book)}\n\n${book.chapters.map((item, index) => `第 ${index + 1} 章  ${item.title}\n${item.status || '草稿'} · ${(item.words || 0).toLocaleString()} 字\n`).join('\n')}`; }
 function downloadText(content, filename) { const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); }
-function renderExportSummary() { const name = exportBookSelect.value; document.querySelector('#exportSummary').textContent = name ? `${bookCount(books[name])} · 将导出章节标题、状态与字数` : '请先创建作品。'; }
+function renderOutlines() { document.querySelector('#outlineList').innerHTML = outlines.map(item => `<article class="outline-item"><div class="outline-item-head"><h3>${escapeHtml(item.title)}</h3><span>${escapeHtml(item.status)}</span></div><p>${escapeHtml(item.note || '暂无补充说明')}</p><small>${escapeHtml(item.chapter || '未关联章节')}</small></article>`).join(''); document.querySelector('#outlineCount').textContent = outlines.length ? `${outlines.length} 条情节` : '还没有情节'; }
 
 document.querySelector('#workForm').addEventListener('submit', event => { event.preventDefault(); const name = document.querySelector('#workTitle').value.trim(); const genre = document.querySelector('#workGenre').value.trim(); if (books[name]) { notify('已存在同名作品'); return; } const now = new Date().toISOString(); books[name] = { genre, chapters: [], createdAt: now, updatedAt: now }; saveBooks(); activeBook = name; renderBookControls(); renderWorkList(); event.target.reset(); showPage('作品'); notify(`《${name}》已创建`); });
 const syncToggle = document.querySelector('#syncToggle'); const syncStatus = document.querySelector('#syncStatus'); const syncOn = localStorage.getItem('mojian-sync') !== 'off'; syncToggle.checked = syncOn; syncStatus.textContent = syncOn ? '已开启 · 联网时将自动备份稿件' : '已关闭 · 稿件仅保存在此设备';
 syncToggle.addEventListener('change', () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); syncStatus.textContent = enabled ? '已开启 · 联网时将自动备份稿件' : '已关闭 · 稿件仅保存在此设备'; notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
 document.querySelector('#exportButton').addEventListener('click', () => { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } downloadText(names.map(exportBook).join('\n\n'), '墨间-全部稿件.txt'); notify('已导出全部稿件'); });
-document.querySelector('#toolExportButton').addEventListener('click', () => { const name = exportBookSelect.value; if (name) { downloadText(exportBook(name), `墨间-${name}.txt`); notify(`已导出《${name}》`); } });
-exportBookSelect.addEventListener('change', renderExportSummary);
 document.querySelector('#characterForm').addEventListener('submit', event => { event.preventDefault(); characters.unshift({ name: document.querySelector('#characterName').value.trim(), role: document.querySelector('#characterRole').value.trim(), note: document.querySelector('#characterNote').value.trim() }); localStorage.setItem('mojian-characters', JSON.stringify(characters)); renderCharacters(); event.target.reset(); notify('角色设定已保存'); });
 document.querySelector('#timelineForm').addEventListener('submit', event => { event.preventDefault(); events.push({ time: document.querySelector('#eventTime').value.trim(), title: document.querySelector('#eventTitle').value.trim(), note: document.querySelector('#eventNote').value.trim() }); localStorage.setItem('mojian-events', JSON.stringify(events)); renderTimeline(); event.target.reset(); notify('时间线事件已保存'); });
+document.querySelector('#outlineForm').addEventListener('submit', event => { event.preventDefault(); outlines.unshift({ title: document.querySelector('#outlineTitle').value.trim(), chapter: document.querySelector('#outlineChapter').value.trim(), note: document.querySelector('#outlineNote').value.trim(), status: document.querySelector('#outlineStatus').value }); localStorage.setItem('mojian-outlines', JSON.stringify(outlines)); renderOutlines(); event.target.reset(); notify('剧情大纲已保存'); });
 document.querySelectorAll('[data-close-tool]').forEach(button => button.addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); }));
 document.querySelector('#newWorkButton').addEventListener('click', openNewWork);
 document.querySelector('#newWorkBack').addEventListener('click', () => showPage('作品'));
@@ -148,7 +144,7 @@ document.querySelector('#chapterDone').addEventListener('click', () => { updateE
 document.querySelector('#detailBack').addEventListener('click', () => { showPage('作品'); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="作品"]').classList.add('active'); });
 document.querySelector('#detailOpenChapters').addEventListener('click', () => { renderChapters(activeBook); document.querySelector('.tabbar .active')?.classList.remove('active'); document.querySelector('[data-page="章节"]').classList.add('active'); showPage('章节'); });
 document.querySelector('#bookSwitch').addEventListener('click', () => { bookMenu.hidden = !bookMenu.hidden; });
-document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#exportPage'); }));
+document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#outlinePage'); }));
 document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); }));
-renderBookControls(); renderWorkList(); renderCharacters(); renderTimeline(); renderMaterials();
+renderBookControls(); renderWorkList(); renderCharacters(); renderTimeline(); renderOutlines(); renderMaterials();
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
