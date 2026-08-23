@@ -131,9 +131,10 @@ function renderCharacters() {
     if (visited.has(item.name)) return '';
     const next = new Set(visited); next.add(item.name);
     const children = items.filter(child => child.relatedTo === item.name);
-    return `<li><div class="graph-node"><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.role)}</p>${item.relation ? `<span class="graph-relation">${escapeHtml(item.relation)}</span>` : ''}</div>${children.length ? `<ul>${children.map(child => renderNode(child, next)).join('')}</ul>` : ''}</li>`;
+    return `<li><div class="graph-node"><button class="graph-delete" data-character-index="${items.indexOf(item)}">删除</button><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.role)}</p>${item.relation ? `<span class="graph-relation">${escapeHtml(item.relation)}</span>` : ''}</div>${children.length ? `<ul>${children.map(child => renderNode(child, next)).join('')}</ul>` : ''}</li>`;
   };
   graph.innerHTML = `<ul class="graph-tree">${roots.map(item => renderNode(item)).join('')}</ul>`;
+  document.querySelectorAll('.graph-delete').forEach(button => button.addEventListener('click', () => requestDeletion('character', Number(button.dataset.characterIndex))));
 }
 function openCharacterForm() {
   if (!ensureActiveBook()) { notify('请先创建并选择一部作品'); return; }
@@ -151,26 +152,26 @@ function openEditor(index) { if (!ensureActiveBook()) return; activeChapterIndex
 function updateEditorMeta() { if (activeChapterIndex === null || !books[activeBook]) return; const chapter = books[activeBook].chapters[activeChapterIndex]; chapter.title = document.querySelector('#chapterTitleInput').value.trim() || '未命名章节'; chapter.body = document.querySelector('#chapterBodyInput').value; chapter.words = chapter.body.replace(/\s/g, '').length; chapter.status = '草稿'; books[activeBook].updatedAt = new Date().toISOString(); saveBooks(); document.querySelector('#wordCount').textContent = `${chapter.words.toLocaleString()} 字`; document.querySelector('#editorState').textContent = '已自动保存'; }
 function closeEditor() { updateEditorMeta(); renderBookControls(); renderChapters(); showPage('章节'); chaptersPage.classList.add('is-visible'); screen.classList.add('show-chapters'); }
 function moveToTrash(type, workName, data, index = null) { trash.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, type, workName, data, index, deletedAt: new Date().toISOString() }); saveTrash(); renderTrash(); }
-function trashLabel(record) { return record.type === 'work' ? '作品' : record.type === 'chapter' ? '章节' : '素材'; }
+function trashLabel(record) { return record.type === 'work' ? '作品' : record.type === 'chapter' ? '章节' : record.type === 'character' ? '人物' : '素材'; }
 function renderTrash() {
   document.querySelector('#trashCount').textContent = trash.length ? `${trash.length} 项可恢复内容` : '暂无已删除内容';
   const groups = trash.reduce((result, item) => { (result[item.workName] ||= []).push(item); return result; }, {});
-  document.querySelector('#trashList').innerHTML = trash.length ? Object.entries(groups).map(([name, items]) => `<section class="trash-group"><h2>《${escapeHtml(name)}》</h2>${items.map(item => `<article class="trash-item"><div><h3>${trashLabel(item)} · ${escapeHtml(item.type === 'work' ? name : item.data.title || '未命名')}</h3><p>删除于 ${formatDate(item.deletedAt)}</p></div><button class="restore-button" data-trash-id="${item.id}">还原</button></article>`).join('')}</section>`).join('') : '<div class="trash-empty"><b>♲</b>回收站为空</div>';
+  document.querySelector('#trashList').innerHTML = trash.length ? Object.entries(groups).map(([name, items]) => `<section class="trash-group"><h2>《${escapeHtml(name)}》</h2>${items.map(item => `<article class="trash-item"><div><h3>${trashLabel(item)} · ${escapeHtml(item.type === 'work' ? name : item.data.title || item.data.name || '未命名')}</h3><p>删除于 ${formatDate(item.deletedAt)}</p></div><button class="restore-button" data-trash-id="${item.id}">还原</button></article>`).join('')}</section>`).join('') : '<div class="trash-empty"><b>♲</b>回收站为空</div>';
   document.querySelectorAll('.restore-button').forEach(button => button.addEventListener('click', () => restoreTrash(button.dataset.trashId)));
 }
 function openTrash() { showPage('作品'); screen.classList.add('show-trash'); trashPage.classList.add('is-visible'); renderTrash(); }
 function restoreTrash(id) {
   const index = trash.findIndex(item => item.id === id); const item = trash[index]; if (!item) return;
   if (item.type === 'work') { if (books[item.workName]) { notify('同名作品已存在，无法还原'); return; } books[item.workName] = item.data; setActiveBook(item.workName); }
-  else { if (!books[item.workName]) { notify('请先还原所属作品'); return; } const list = item.type === 'chapter' ? books[item.workName].chapters : books[item.workName].materials; list.splice(Math.min(item.index ?? list.length, list.length), 0, item.data); }
+  else { if (!books[item.workName]) { notify('请先还原所属作品'); return; } const list = item.type === 'chapter' ? books[item.workName].chapters : item.type === 'character' ? books[item.workName].characters : books[item.workName].materials; list.splice(Math.min(item.index ?? list.length, list.length), 0, item.data); }
   trash.splice(index, 1); saveTrash(); saveBooks(); renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash(); notify('已还原');
 }
-function requestDeletion(type, materialIndex = null) {
-  if (!activeBook || (type === 'chapter' && activeChapterIndex === null) || (type === 'material' && materialIndex === null)) return;
+function requestDeletion(type, itemIndex = null) {
+  if (!activeBook || (type === 'chapter' && activeChapterIndex === null) || ((type === 'material' || type === 'character') && itemIndex === null)) return;
   const code = String(Math.floor(1000 + Math.random() * 9000));
-  pendingDeletion = { type, code, book: activeBook, chapter: activeChapterIndex, material: materialIndex };
-  document.querySelector('#deleteTitle').textContent = type === 'work' ? '删除这部作品？' : type === 'chapter' ? '删除这一章？' : '删除这条素材？';
-  document.querySelector('#deleteHint').textContent = type === 'work' ? `《${activeBook}》及其全部章节、素材和创作资料将被永久删除。` : type === 'chapter' ? '这一章的标题和正文将被永久删除。' : '这条素材及其标签将被永久删除。';
+  pendingDeletion = { type, code, book: activeBook, chapter: activeChapterIndex, item: itemIndex };
+  document.querySelector('#deleteTitle').textContent = type === 'work' ? '删除这部作品？' : type === 'chapter' ? '删除这一章？' : type === 'character' ? '删除这个人物？' : '删除这条素材？';
+  document.querySelector('#deleteHint').textContent = type === 'work' ? `《${activeBook}》及其全部章节、素材和创作资料将被移入回收站。` : type === 'chapter' ? '这一章的标题和正文将被移入回收站。' : type === 'character' ? '这个人物会从谱系图中移除并移入回收站。' : '这条素材及其标签将被移入回收站。';
   document.querySelector('#deleteCode').textContent = code;
   document.querySelector('#deleteCodeInput').value = '';
   document.querySelector('#deleteConfirm').disabled = true;
@@ -191,9 +192,10 @@ function confirmDeletion() {
     books[pendingDeletion.book].chapters.splice(pendingDeletion.chapter, 1);
     activeChapterIndex = null; saveBooks(); closeDeleteModal(); renderBookControls(); renderWorkList(); renderChapters(); showPage('章节'); notify('章节已删除');
   } else {
-    moveToTrash('material', pendingDeletion.book, books[pendingDeletion.book].materials[pendingDeletion.material], pendingDeletion.material);
-    books[pendingDeletion.book].materials.splice(pendingDeletion.material, 1);
-    saveBooks(); closeDeleteModal(); renderMaterials(); notify('素材已删除');
+    const key = pendingDeletion.type === 'character' ? 'characters' : 'materials';
+    moveToTrash(pendingDeletion.type, pendingDeletion.book, books[pendingDeletion.book][key][pendingDeletion.item], pendingDeletion.item);
+    books[pendingDeletion.book][key].splice(pendingDeletion.item, 1);
+    saveBooks(); closeDeleteModal(); pendingDeletion.type === 'character' ? renderCharacters() : renderMaterials(); notify(pendingDeletion.type === 'character' ? '人物已删除' : '素材已删除');
   }
 }
 function exportBook(name) { const book = books[name]; return `墨间 · 稿件导出\n\n《${name}》\n${book.genre ? `题材：${book.genre}\n` : ''}${bookCount(book)}\n\n${book.chapters.map((item, index) => `第 ${index + 1} 章  ${item.title}\n${item.status || '草稿'} · ${(item.words || 0).toLocaleString()} 字\n`).join('\n')}`; }
