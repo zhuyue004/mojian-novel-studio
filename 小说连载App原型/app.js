@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '2.6';
-const APP_MODIFIED_AT = '2026年08月23日 19:30';
+const APP_VERSION = '2.7';
+const APP_MODIFIED_AT = '2026年08月23日 20:18';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
@@ -58,7 +58,7 @@ function cloudState() { return { books, trash, activeBook }; }
 function setSyncStatus(message) { const status = document.querySelector('#syncStatus'); if (status) status.textContent = message; }
 function formatSyncTime(value) { return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
 function rememberCloudTime(value) { if (!value) return; lastKnownCloudUpdatedAt = value; localStorage.setItem('mojian-cloud-updated-at', value); }
-function queueCloudSave({ force = false } = {}) {
+function queueCloudSave({ force = false, allowOverwrite = false } = {}) {
   if (applyingCloudState || (!force && !document.querySelector('#syncToggle')?.checked)) return;
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer = setTimeout(async () => {
@@ -66,7 +66,7 @@ function queueCloudSave({ force = false } = {}) {
       const cloud = window.mojianCloud; if (!cloud || !(await cloud.getUser())) return;
       cloudSyncInFlight = true; setSyncStatus('正在上传本机修改…');
       const remote = await cloud.loadState();
-      if (remote?.updatedAt && (!lastKnownCloudUpdatedAt || new Date(remote.updatedAt) > new Date(lastKnownCloudUpdatedAt))) { setSyncStatus('云端有较新修改，点“立即同步”处理'); return; }
+      if (!allowOverwrite && remote?.updatedAt && (!lastKnownCloudUpdatedAt || new Date(remote.updatedAt) > new Date(lastKnownCloudUpdatedAt))) { setSyncStatus('云端有较新修改，点“立即同步”处理'); return; }
       const updatedAt = await cloud.saveState(cloudState()); const syncedAt = new Date(); rememberCloudTime(updatedAt || syncedAt.toISOString()); hasLocalChanges = false; localStorage.setItem('mojian-last-sync', syncedAt.toISOString()); setSyncStatus(`已上传 · ${formatSyncTime(syncedAt)}`);
     } catch (error) { setSyncStatus('同步失败，请检查网络或数据库设置'); }
     finally { cloudSyncInFlight = false; }
@@ -80,10 +80,14 @@ async function pullCloudState({ manual = false } = {}) {
     const remote = await cloud.loadState();
     if (!remote?.state?.books) { if (hasLocalChanges || manual) queueCloudSave({ force: manual }); else setSyncStatus('云端暂无备份'); return true; }
     const remoteIsNewer = !lastKnownCloudUpdatedAt || new Date(remote.updatedAt) > new Date(lastKnownCloudUpdatedAt);
-    if (hasLocalChanges && remoteIsNewer) {
-      if (!manual) { setSyncStatus('云端有较新修改，点“立即同步”处理'); return false; }
-      const useCloud = confirm('云端和本机都有未同步修改。\n\n点“确定”用云端内容替换本机；点“取消”保留本机内容并上传。');
-      if (!useCloud) { rememberCloudTime(remote.updatedAt); queueCloudSave({ force: true }); setSyncStatus('已保留本机修改，正在上传…'); return true; }
+    if (hasLocalChanges) {
+      if (remoteIsNewer) {
+        if (!manual) { setSyncStatus('云端有较新修改，点“立即同步”处理'); return false; }
+        const useCloud = confirm('云端和本机都有未同步修改。\n\n点“确定”用云端内容替换本机；点“取消”保留本机内容并上传。');
+        if (useCloud) { applyCloudState(remote.state); rememberCloudTime(remote.updatedAt); hasLocalChanges = false; setSyncStatus(`已从云端更新 · ${formatSyncTime(remote.updatedAt)}`); return true; }
+        rememberCloudTime(remote.updatedAt);
+      }
+      queueCloudSave({ force: manual }); setSyncStatus('已保留本机修改，正在上传…'); return true;
     }
     if (remoteIsNewer || manual) { applyCloudState(remote.state); rememberCloudTime(remote.updatedAt); hasLocalChanges = false; localStorage.setItem('mojian-last-sync', remote.updatedAt || new Date().toISOString()); setSyncStatus(`已从云端更新 · ${formatSyncTime(remote.updatedAt || new Date())}`); if (manual) notify('已获取云端最新内容'); }
     else setSyncStatus('本机与云端已保持一致');
@@ -289,7 +293,7 @@ document.querySelector('#publishBookSelect').addEventListener('change', event =>
 document.querySelector('#publishForm').addEventListener('submit', event => { event.preventDefault(); const chapter = scoped('chapters')[publishingChapterIndex]; if (!chapter) return; chapter.status = '已发布'; (chapter.publishRecords ||= []).push({ platform: document.querySelector('#publishPlatform').value.trim(), publishedAt: document.querySelector('#publishedAt').value || new Date().toISOString(), url: document.querySelector('#publishUrl').value.trim() }); saveBooks(); renderDashboard(); event.target.reset(); event.target.hidden = true; publishingChapterIndex = null; renderPublishQueue(); notify('发布记录已保存'); });
 document.querySelector('#backupExport').addEventListener('click', () => { downloadText(JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...cloudState() }, null, 2), `墨间-本地备份-${new Date().toISOString().slice(0, 10)}.json`); notify('完整备份已导出'); });
 document.querySelector('#backupImport').addEventListener('click', () => document.querySelector('#backupFile').click());
-document.querySelector('#backupFile').addEventListener('change', event => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(reader.result); if (!data?.books || !confirm('导入会覆盖当前所有本地内容，确定继续吗？')) return; applyCloudState(data); notify('本地备份已导入'); } catch { notify('备份文件无效，无法导入'); } finally { event.target.value = ''; } }; reader.readAsText(file); });
+document.querySelector('#backupFile').addEventListener('change', event => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(reader.result); if (!data?.books || !confirm('导入会覆盖当前所有本地内容，确定继续吗？')) return; applyCloudState(data); hasLocalChanges = true; queueCloudSave({ force: true, allowOverwrite: true }); setSyncStatus('备份已导入，正在覆盖云端备份…'); notify('本地备份已导入并开始同步'); } catch { notify('备份文件无效，无法导入'); } finally { event.target.value = ''; } }; reader.readAsText(file); });
 document.querySelector('#trashOpen').addEventListener('click', openTrash);
 document.querySelector('#trashBack').addEventListener('click', () => showPage('设置'));
 document.querySelector('#syncAccountOpen').addEventListener('click', openSyncPage);
