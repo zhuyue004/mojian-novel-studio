@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '1.8';
-const APP_MODIFIED_AT = '2026年08月23日 17:35';
+const APP_VERSION = '1.9';
+const APP_MODIFIED_AT = '2026年08月23日 17:40';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
