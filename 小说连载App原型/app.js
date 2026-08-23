@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '2.5';
-const APP_MODIFIED_AT = '2026年08月23日 18:46';
+const APP_VERSION = '2.6';
+const APP_MODIFIED_AT = '2026年08月23日 19:30';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
@@ -34,6 +34,9 @@ let publishingChapterIndex = null;
 let applyingCloudState = false;
 let cloudSaveTimer = null;
 let updateReloadQueued = false;
+let cloudSyncInFlight = false;
+let hasLocalChanges = false;
+let lastKnownCloudUpdatedAt = localStorage.getItem('mojian-cloud-updated-at') || null;
 
 document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
 
@@ -43,8 +46,9 @@ Object.values(books).forEach(book => {
 
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1800); }
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
-function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); queueCloudSave(); }
-function saveTrash() { localStorage.setItem('mojian-trash', JSON.stringify(trash)); queueCloudSave(); }
+function markLocalChange() { if (!applyingCloudState) hasLocalChanges = true; }
+function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); markLocalChange(); queueCloudSave(); }
+function saveTrash() { localStorage.setItem('mojian-trash', JSON.stringify(trash)); markLocalChange(); queueCloudSave(); }
 function bookCount(book) { const chapters = book.chapters || []; const words = chapters.reduce((sum, item) => sum + (item.words || 0), 0); return `共 ${chapters.length} 章 · ${words.toLocaleString()} 字`; }
 function setActiveBook(name) { if (!name || !books[name]) return false; activeBook = name; localStorage.setItem('mojian-active-book', name); return true; }
 function scoped(key) { return activeBook && books[activeBook] ? books[activeBook][key] : []; }
@@ -52,15 +56,40 @@ function contextName() { return activeBook ? `《${activeBook}》` : '请先选�
 function ensureActiveBook() { const names = Object.keys(books); if (!books[activeBook] && names.length) setActiveBook(names[0]); return Boolean(activeBook && books[activeBook]); }
 function cloudState() { return { books, trash, activeBook }; }
 function setSyncStatus(message) { const status = document.querySelector('#syncStatus'); if (status) status.textContent = message; }
-function queueCloudSave() {
-  if (applyingCloudState || !document.querySelector('#syncToggle')?.checked) return;
+function formatSyncTime(value) { return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
+function rememberCloudTime(value) { if (!value) return; lastKnownCloudUpdatedAt = value; localStorage.setItem('mojian-cloud-updated-at', value); }
+function queueCloudSave({ force = false } = {}) {
+  if (applyingCloudState || (!force && !document.querySelector('#syncToggle')?.checked)) return;
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer = setTimeout(async () => {
     try {
       const cloud = window.mojianCloud; if (!cloud || !(await cloud.getUser())) return;
-      await cloud.saveState(cloudState()); const syncedAt = new Date(); localStorage.setItem('mojian-last-sync', syncedAt.toISOString()); setSyncStatus(`上次同步：${syncedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+      cloudSyncInFlight = true; setSyncStatus('正在上传本机修改…');
+      const remote = await cloud.loadState();
+      if (remote?.updatedAt && (!lastKnownCloudUpdatedAt || new Date(remote.updatedAt) > new Date(lastKnownCloudUpdatedAt))) { setSyncStatus('云端有较新修改，点“立即同步”处理'); return; }
+      const updatedAt = await cloud.saveState(cloudState()); const syncedAt = new Date(); rememberCloudTime(updatedAt || syncedAt.toISOString()); hasLocalChanges = false; localStorage.setItem('mojian-last-sync', syncedAt.toISOString()); setSyncStatus(`已上传 · ${formatSyncTime(syncedAt)}`);
     } catch (error) { setSyncStatus('同步失败，请检查网络或数据库设置'); }
+    finally { cloudSyncInFlight = false; }
   }, 700);
+}
+async function pullCloudState({ manual = false } = {}) {
+  const cloud = window.mojianCloud; if (!cloud || !(await cloud.getUser())) { setSyncStatus('需登录同步账户'); return false; }
+  if (cloudSyncInFlight) return false;
+  try {
+    cloudSyncInFlight = true; setSyncStatus('正在检查云端修改…');
+    const remote = await cloud.loadState();
+    if (!remote?.state?.books) { if (hasLocalChanges || manual) queueCloudSave({ force: manual }); else setSyncStatus('云端暂无备份'); return true; }
+    const remoteIsNewer = !lastKnownCloudUpdatedAt || new Date(remote.updatedAt) > new Date(lastKnownCloudUpdatedAt);
+    if (hasLocalChanges && remoteIsNewer) {
+      if (!manual) { setSyncStatus('云端有较新修改，点“立即同步”处理'); return false; }
+      const useCloud = confirm('云端和本机都有未同步修改。\n\n点“确定”用云端内容替换本机；点“取消”保留本机内容并上传。');
+      if (!useCloud) { rememberCloudTime(remote.updatedAt); queueCloudSave({ force: true }); setSyncStatus('已保留本机修改，正在上传…'); return true; }
+    }
+    if (remoteIsNewer || manual) { applyCloudState(remote.state); rememberCloudTime(remote.updatedAt); hasLocalChanges = false; localStorage.setItem('mojian-last-sync', remote.updatedAt || new Date().toISOString()); setSyncStatus(`已从云端更新 · ${formatSyncTime(remote.updatedAt || new Date())}`); if (manual) notify('已获取云端最新内容'); }
+    else setSyncStatus('本机与云端已保持一致');
+    return true;
+  } catch (error) { setSyncStatus('同步失败，请检查网络或数据库设置'); return false; }
+  finally { cloudSyncInFlight = false; }
 }
 function applyCloudState(state) {
   if (!state?.books) return false;
@@ -86,8 +115,8 @@ async function initialiseCloud() {
     const cloud = window.mojianCloud; if (!cloud) return;
     const user = await cloud.getUser(); renderSyncAccount(user);
     if (!user) return;
-    const state = await cloud.loadState();
-    if (state?.books) applyCloudState(state); else queueCloudSave();
+    const remote = await cloud.loadState();
+    if (remote?.state?.books) { applyCloudState(remote.state); rememberCloudTime(remote.updatedAt); hasLocalChanges = false; setSyncStatus(`已从云端更新 · ${formatSyncTime(remote.updatedAt || new Date())}`); } else queueCloudSave();
   } catch (error) { setSyncStatus('云端未初始化，请运行建表脚本'); }
 }
 function openSyncPage() { showPage('作品'); screen.classList.add('show-sync'); syncPage.classList.add('is-visible'); }
@@ -250,8 +279,9 @@ function publishChecks(name) { const chapters = books[name].chapters || []; retu
 function downloadText(content, filename) { const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); }
 
 document.querySelector('#workForm').addEventListener('submit', event => { event.preventDefault(); const name = document.querySelector('#workTitle').value.trim(); const genre = document.querySelector('#workGenre').value.trim(); if (books[name]) { notify('已存在同名作品'); return; } const now = new Date().toISOString(); books[name] = { genre, chapters: [], characters: [], events: [], outlines: [], materials: [], createdAt: now, updatedAt: now }; setActiveBook(name); saveBooks(); renderBookControls(); renderWorkList(); refreshScopedViews(); event.target.reset(); showPage('作品'); notify(`《${name}》已创建`); });
-const syncToggle = document.querySelector('#syncToggle'); const syncOn = localStorage.getItem('mojian-sync') === 'on'; syncToggle.checked = syncOn; const syncStatus = document.querySelector('#syncStatus'); const autoSyncCopy = syncToggle.closest('.setting-row').querySelector('div p'); autoSyncCopy?.remove(); syncToggle.closest('.setting-row').querySelector('div').append(syncStatus); setSyncStatus('需登录同步账户');
+const syncToggle = document.querySelector('#syncToggle'); const syncOn = localStorage.getItem('mojian-sync') === 'on'; syncToggle.checked = syncOn; const syncStatus = document.querySelector('#syncStatus'); const autoSyncCopy = syncToggle.closest('.setting-row').querySelector('div p'); autoSyncCopy?.remove(); syncToggle.closest('.setting-row').querySelector('div').append(syncStatus); const syncNowButton = document.createElement('button'); syncNowButton.type = 'button'; syncNowButton.className = 'sync-now'; syncNowButton.textContent = '立即同步'; document.querySelector('.sync-settings-card').insertBefore(syncNowButton, document.querySelector('#syncAccountOpen')); setSyncStatus('需登录同步账户');
 syncToggle.addEventListener('change', async () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); const user = window.mojianCloud ? await window.mojianCloud.getUser() : null; renderSyncAccount(user); if (enabled && user) queueCloudSave(); notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
+syncNowButton.addEventListener('click', () => pullCloudState({ manual: true }));
 document.querySelector('#exportButton').addEventListener('click', () => { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } const checks = names.flatMap(name => publishChecks(name).map(item => `《${name}》：${item}`)); const report = checks.length ? `\n\n--- 发布前检查 ---\n${checks.map(item => `- ${item}`).join('\n')}` : '\n\n--- 发布前检查 ---\n全部通过'; downloadText(names.map(exportBook).join('\n\n') + report, '墨间-全部稿件.txt'); notify(checks.length ? `已导出，附 ${checks.length} 条发布提醒` : '已导出全部稿件，检查通过'); });
 document.querySelector('#publishOpen').addEventListener('click', openPublishPage);
 document.querySelector('#publishBack').addEventListener('click', () => showPage('设置'));
@@ -264,7 +294,7 @@ document.querySelector('#trashOpen').addEventListener('click', openTrash);
 document.querySelector('#trashBack').addEventListener('click', () => showPage('设置'));
 document.querySelector('#syncAccountOpen').addEventListener('click', openSyncPage);
 document.querySelector('#syncBack').addEventListener('click', () => showPage('设置'));
-document.querySelector('#syncForm').addEventListener('submit', async event => { event.preventDefault(); try { const user = await window.mojianCloud.signIn(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); renderSyncAccount(user); const remote = await window.mojianCloud.loadState(); if (remote?.books) applyCloudState(remote); else queueCloudSave(); notify('登录成功，已开始同步'); } catch (error) { notify(error.message || '登录失败'); } });
+document.querySelector('#syncForm').addEventListener('submit', async event => { event.preventDefault(); try { const user = await window.mojianCloud.signIn(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); renderSyncAccount(user); const remote = await window.mojianCloud.loadState(); if (remote?.state?.books) { applyCloudState(remote.state); rememberCloudTime(remote.updatedAt); hasLocalChanges = false; } else queueCloudSave({ force: true }); notify('登录成功，已开始同步'); } catch (error) { notify(error.message || '登录失败'); } });
 document.querySelector('#syncSignUp').addEventListener('click', async () => { try { const user = await window.mojianCloud.signUp(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); if (user) { renderSyncAccount(user); queueCloudSave(); notify('注册成功，已开始同步'); } else notify('请查收邮箱验证邮件后再登录'); } catch (error) { notify(error.message || '注册失败'); } });
 document.querySelector('#syncSignOut').addEventListener('click', async () => { try { await window.mojianCloud.signOut(); renderSyncAccount(null); notify('已退出同步账户'); } catch (error) { notify('退出失败'); } });
 document.querySelector('#characterForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; const isEditing = editingCharacterIndex !== null; const data = { name: document.querySelector('#characterName').value.trim(), role: document.querySelector('#characterRole').value.trim(), relatedTo: document.querySelector('#characterRelated').value, relation: document.querySelector('#characterRelation').value.trim(), note: document.querySelector('#characterNote').value.trim() }; if (isEditing) { const previousName = scoped('characters')[editingCharacterIndex].name; scoped('characters')[editingCharacterIndex] = data; if (previousName !== data.name) scoped('characters').forEach(item => { if (item.relatedTo === previousName) item.relatedTo = data.name; }); } else scoped('characters').push(data); editingCharacterIndex = null; saveBooks(); renderCharacters(); event.target.reset(); openTool('#charactersPage'); notify(isEditing ? '角色已更新' : '角色已加入人物谱系图'); });
@@ -314,6 +344,8 @@ if ('serviceWorker' in navigator) {
     });
   }).catch(() => {}));
   navigator.serviceWorker.addEventListener('controllerchange', reloadForUpdate);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
-  window.addEventListener('online', checkForUpdate);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkForUpdate(); pullCloudState(); } });
+  window.addEventListener('focus', () => pullCloudState());
+  window.addEventListener('online', () => { checkForUpdate(); pullCloudState(); });
 }
+setInterval(() => { if (!document.hidden) pullCloudState(); }, 60000);

@@ -27,15 +27,16 @@ window.mojianCloud = {
   async loadState() {
     const user = await this.getUser();
     if (!user) return null;
-    const { data, error } = await client.from('novel_app_state').select('data').eq('user_id', user.id).maybeSingle();
+    const { data, error } = await client.from('novel_app_state').select('data, updated_at').eq('user_id', user.id).maybeSingle();
     if (error) throw error;
-    return data?.data || null;
+    return data ? { state: data.data, updatedAt: data.updated_at } : null;
   },
   async saveState(state) {
     const user = await this.getUser();
     if (!user) return;
-    const { error } = await client.from('novel_app_state').upsert({ user_id: user.id, data: state, updated_at: new Date().toISOString() });
+    const { data, error } = await client.from('novel_app_state').upsert({ user_id: user.id, data: state, updated_at: new Date().toISOString() }).select('updated_at').single();
     if (error) throw error;
+    return data?.updated_at || null;
   },
   onAuthChange(callback) {
     return client.auth.onAuthStateChange((_event, session) => callback(session?.user || null));
