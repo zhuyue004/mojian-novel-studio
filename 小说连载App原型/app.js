@@ -27,6 +27,7 @@ let editingEventIndex = null;
 let publishingChapterIndex = null;
 let applyingCloudState = false;
 let cloudSaveTimer = null;
+let updateReloadQueued = false;
 
 document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
 
@@ -186,7 +187,7 @@ function refreshScopedViews() { renderCharacters(); renderTimeline(); renderOutl
 
 function openEditor(index) { if (!ensureActiveBook()) return; activeChapterIndex = index; const chapter = books[activeBook].chapters[index]; screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible')); screen.classList.add('show-editor'); editorPage.classList.add('is-visible'); document.querySelector('#chapterTitleInput').value = chapter.title || ''; document.querySelector('#chapterVolume').value = chapter.volume || ''; document.querySelector('#chapterStatus').value = chapter.status || '草稿'; document.querySelector('#chapterBodyInput').value = chapter.body || ''; updateEditorMeta(); }
 function updateEditorMeta() { if (activeChapterIndex === null || !books[activeBook]) return; const chapter = books[activeBook].chapters[activeChapterIndex]; chapter.title = document.querySelector('#chapterTitleInput').value.trim() || '未命名章节'; chapter.volume = document.querySelector('#chapterVolume').value.trim(); chapter.body = document.querySelector('#chapterBodyInput').value; chapter.words = chapter.body.replace(/\s/g, '').length; chapter.status = document.querySelector('#chapterStatus').value; chapter.updatedAt = new Date().toISOString(); books[activeBook].updatedAt = chapter.updatedAt; saveBooks(); document.querySelector('#wordCount').textContent = `${chapter.words.toLocaleString()} 字`; document.querySelector('#editorState').textContent = '已自动保存'; renderDashboard(); }
-function closeEditor() { updateEditorMeta(); renderBookControls(); renderChapters(); showPage('章节'); chaptersPage.classList.add('is-visible'); screen.classList.add('show-chapters'); }
+function closeEditor() { updateEditorMeta(); renderBookControls(); renderChapters(); showPage('章节'); chaptersPage.classList.add('is-visible'); screen.classList.add('show-chapters'); if (updateReloadQueued) window.location.reload(); }
 function moveToTrash(type, workName, data, index = null) { trash.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, type, workName, data, index, deletedAt: new Date().toISOString() }); saveTrash(); renderTrash(); }
 function trashLabel(record) { return record.type === 'work' ? '作品' : record.type === 'chapter' ? '章节' : record.type === 'character' ? '人物' : record.type === 'event' ? '事件' : '素材'; }
 function renderTrash() {
@@ -286,4 +287,22 @@ document.querySelectorAll('.tool-card').forEach(button => button.addEventListene
 document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); if (button.dataset.page === '章节') renderChapters(); if (button.dataset.page === '素材') refreshScopedViews(); }));
 renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash();
 window.addEventListener('mojian-cloud-ready', initialiseCloud);
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+if ('serviceWorker' in navigator) {
+  let registration;
+  const checkForUpdate = () => registration?.update().catch(() => {});
+  const reloadForUpdate = () => {
+    if (screen.classList.contains('show-editor')) { updateReloadQueued = true; return; }
+    window.location.reload();
+  };
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').then(result => {
+    registration = result;
+    checkForUpdate();
+    result.addEventListener('updatefound', () => {
+      const worker = result.installing;
+      worker?.addEventListener('statechange', () => { if (worker.state === 'installed' && navigator.serviceWorker.controller) worker.postMessage({ type: 'SKIP_WAITING' }); });
+    });
+  }).catch(() => {}));
+  navigator.serviceWorker.addEventListener('controllerchange', reloadForUpdate);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+  window.addEventListener('online', checkForUpdate);
+}
