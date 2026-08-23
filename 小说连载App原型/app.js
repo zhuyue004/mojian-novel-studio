@@ -8,6 +8,7 @@ const addWorkPage = document.querySelector('.add-work-page');
 const materialsPage = document.querySelector('.materials-page');
 const addMaterialPage = document.querySelector('.add-material-page');
 const trashPage = document.querySelector('.trash-page');
+const syncPage = document.querySelector('.sync-page');
 const toolPages = document.querySelectorAll('.tool-page');
 const bookMenu = document.querySelector('#bookMenu');
 const chapterList = document.querySelector('.chapter-list');
@@ -17,6 +18,8 @@ let activeBook = localStorage.getItem('mojian-active-book');
 let activeChapterIndex = null;
 let activeMaterialFilter = '全部';
 let pendingDeletion = null;
+let applyingCloudState = false;
+let cloudSaveTimer = null;
 
 document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
 
@@ -26,18 +29,58 @@ Object.values(books).forEach(book => {
 
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1800); }
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
-function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); }
-function saveTrash() { localStorage.setItem('mojian-trash', JSON.stringify(trash)); }
+function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); queueCloudSave(); }
+function saveTrash() { localStorage.setItem('mojian-trash', JSON.stringify(trash)); queueCloudSave(); }
 function bookCount(book) { const chapters = book.chapters || []; const words = chapters.reduce((sum, item) => sum + (item.words || 0), 0); return `共 ${chapters.length} 章 · ${words.toLocaleString()} 字`; }
 function setActiveBook(name) { if (!name || !books[name]) return false; activeBook = name; localStorage.setItem('mojian-active-book', name); return true; }
 function scoped(key) { return activeBook && books[activeBook] ? books[activeBook][key] : []; }
 function contextName() { return activeBook ? `《${activeBook}》` : '请先选择作品'; }
 function ensureActiveBook() { const names = Object.keys(books); if (!books[activeBook] && names.length) setActiveBook(names[0]); return Boolean(activeBook && books[activeBook]); }
+function cloudState() { return { books, trash, activeBook }; }
+function setSyncStatus(message) { const status = document.querySelector('#syncStatus'); if (status) status.textContent = message; }
+function queueCloudSave() {
+  if (applyingCloudState || !document.querySelector('#syncToggle')?.checked) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(async () => {
+    try {
+      const cloud = window.mojianCloud; if (!cloud || !(await cloud.getUser())) return;
+      await cloud.saveState(cloudState()); setSyncStatus('已同步到云端');
+    } catch (error) { setSyncStatus('同步失败，请检查网络或数据库设置'); }
+  }, 700);
+}
+function applyCloudState(state) {
+  if (!state?.books) return false;
+  applyingCloudState = true;
+  Object.keys(books).forEach(key => delete books[key]); Object.assign(books, state.books);
+  Object.values(books).forEach(book => { book.chapters ||= []; book.characters ||= []; book.events ||= []; book.outlines ||= []; book.materials ||= []; });
+  trash = Array.isArray(state.trash) ? state.trash : [];
+  activeBook = state.activeBook && books[state.activeBook] ? state.activeBook : Object.keys(books)[0] || null;
+  if (activeBook) localStorage.setItem('mojian-active-book', activeBook); else localStorage.removeItem('mojian-active-book');
+  localStorage.setItem('mojian-books', JSON.stringify(books)); localStorage.setItem('mojian-trash', JSON.stringify(trash));
+  applyingCloudState = false; renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash(); return true;
+}
+function renderSyncAccount(user) {
+  document.querySelector('#syncAccountStatus').textContent = user ? user.email : '未登录';
+  document.querySelector('#syncPageStatus').textContent = user ? `已登录：${user.email}` : '使用邮箱登录，以便在设备间同步你的小说资料。';
+  document.querySelector('#syncForm').hidden = Boolean(user); document.querySelector('#syncSignOut').hidden = !user;
+  const syncOn = document.querySelector('#syncToggle')?.checked;
+  setSyncStatus(user && syncOn ? '已开启 · 数据会自动备份到云端' : user ? '已登录 · 自动同步已关闭' : '需登录同步账户');
+}
+async function initialiseCloud() {
+  try {
+    const cloud = window.mojianCloud; if (!cloud) return;
+    const user = await cloud.getUser(); renderSyncAccount(user);
+    if (!user) return;
+    const state = await cloud.loadState();
+    if (state?.books) applyCloudState(state); else queueCloudSave();
+  } catch (error) { setSyncStatus('云端未初始化，请运行建表脚本'); }
+}
+function openSyncPage() { showPage('作品'); screen.classList.add('show-sync'); syncPage.classList.add('is-visible'); }
 
 function showPage(page) {
   const chapters = page === '章节'; const settings = page === '设置'; const materials = page === '素材';
-  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash');
-  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
+  screen.classList.toggle('show-chapters', chapters); screen.classList.toggle('show-settings', settings); screen.classList.toggle('show-materials', materials); screen.classList.remove('show-tool', 'show-editor', 'show-detail', 'show-add-work', 'show-add-material', 'show-trash', 'show-sync');
+  chaptersPage.classList.toggle('is-visible', chapters); settingsPage.classList.toggle('is-visible', settings); materialsPage.classList.toggle('is-visible', materials); trashPage.classList.remove('is-visible'); syncPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); detailPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   if (!chapters) bookMenu.hidden = true;
 }
 function openTool(id) { if (!ensureActiveBook()) { notify('请先创建并选择一部作品'); return; } refreshScopedViews(); showPage('作品'); screen.classList.add('show-tool'); document.querySelector(id).classList.add('is-visible'); }
@@ -133,11 +176,16 @@ function exportBook(name) { const book = books[name]; return `墨间 · 稿件�
 function downloadText(content, filename) { const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); }
 
 document.querySelector('#workForm').addEventListener('submit', event => { event.preventDefault(); const name = document.querySelector('#workTitle').value.trim(); const genre = document.querySelector('#workGenre').value.trim(); if (books[name]) { notify('已存在同名作品'); return; } const now = new Date().toISOString(); books[name] = { genre, chapters: [], characters: [], events: [], outlines: [], materials: [], createdAt: now, updatedAt: now }; setActiveBook(name); saveBooks(); renderBookControls(); renderWorkList(); refreshScopedViews(); event.target.reset(); showPage('作品'); notify(`《${name}》已创建`); });
-const syncToggle = document.querySelector('#syncToggle'); const syncStatus = document.querySelector('#syncStatus'); const syncOn = localStorage.getItem('mojian-sync') !== 'off'; syncToggle.checked = syncOn; syncStatus.textContent = syncOn ? '已开启 · 联网时将自动备份稿件' : '已关闭 · 稿件仅保存在此设备';
-syncToggle.addEventListener('change', () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); syncStatus.textContent = enabled ? '已开启 · 联网时将自动备份稿件' : '已关闭 · 稿件仅保存在此设备'; notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
+const syncToggle = document.querySelector('#syncToggle'); const syncOn = localStorage.getItem('mojian-sync') !== 'off'; syncToggle.checked = syncOn; setSyncStatus('需登录同步账户');
+syncToggle.addEventListener('change', async () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); const user = window.mojianCloud ? await window.mojianCloud.getUser() : null; renderSyncAccount(user); if (enabled && user) queueCloudSave(); notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
 document.querySelector('#exportButton').addEventListener('click', () => { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } downloadText(names.map(exportBook).join('\n\n'), '墨间-全部稿件.txt'); notify('已导出全部稿件'); });
 document.querySelector('#trashOpen').addEventListener('click', openTrash);
 document.querySelector('#trashBack').addEventListener('click', () => showPage('设置'));
+document.querySelector('#syncAccountOpen').addEventListener('click', openSyncPage);
+document.querySelector('#syncBack').addEventListener('click', () => showPage('设置'));
+document.querySelector('#syncForm').addEventListener('submit', async event => { event.preventDefault(); try { const user = await window.mojianCloud.signIn(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); renderSyncAccount(user); const remote = await window.mojianCloud.loadState(); if (remote?.books) applyCloudState(remote); else queueCloudSave(); notify('登录成功，已开始同步'); } catch (error) { notify(error.message || '登录失败'); } });
+document.querySelector('#syncSignUp').addEventListener('click', async () => { try { const user = await window.mojianCloud.signUp(document.querySelector('#syncEmail').value.trim(), document.querySelector('#syncPassword').value); if (user) { renderSyncAccount(user); queueCloudSave(); notify('注册成功，已开始同步'); } else notify('请查收邮箱验证邮件后再登录'); } catch (error) { notify(error.message || '注册失败'); } });
+document.querySelector('#syncSignOut').addEventListener('click', async () => { try { await window.mojianCloud.signOut(); renderSyncAccount(null); notify('已退出同步账户'); } catch (error) { notify('退出失败'); } });
 document.querySelector('#characterForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('characters').unshift({ name: document.querySelector('#characterName').value.trim(), role: document.querySelector('#characterRole').value.trim(), note: document.querySelector('#characterNote').value.trim() }); saveBooks(); renderCharacters(); event.target.reset(); notify('角色设定已保存到当前作品'); });
 document.querySelector('#timelineForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('events').push({ time: document.querySelector('#eventTime').value.trim(), title: document.querySelector('#eventTitle').value.trim(), note: document.querySelector('#eventNote').value.trim() }); saveBooks(); renderTimeline(); event.target.reset(); notify('时间线已保存到当前作品'); });
 document.querySelector('#outlineForm').addEventListener('submit', event => { event.preventDefault(); if (!ensureActiveBook()) return; scoped('outlines').unshift({ title: document.querySelector('#outlineTitle').value.trim(), chapter: document.querySelector('#outlineChapter').value.trim(), note: document.querySelector('#outlineNote').value.trim(), status: document.querySelector('#outlineStatus').value }); saveBooks(); renderOutlines(); event.target.reset(); notify('剧情大纲已保存到当前作品'); });
@@ -159,4 +207,5 @@ document.querySelector('#bookSwitch').addEventListener('click', () => { bookMenu
 document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#outlinePage'); }));
 document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); if (button.dataset.page === '章节') renderChapters(); if (button.dataset.page === '素材') refreshScopedViews(); }));
 renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash();
+window.addEventListener('mojian-cloud-ready', initialiseCloud);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
