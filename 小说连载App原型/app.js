@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '3.0';
-const APP_MODIFIED_AT = '2026年08月24日 07:29';
+const APP_VERSION = '3.1';
+const APP_MODIFIED_AT = '2026年08月25日 10:30';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
@@ -37,6 +37,7 @@ let updateReloadQueued = false;
 let cloudSyncInFlight = false;
 let hasLocalChanges = false;
 let lastKnownCloudUpdatedAt = localStorage.getItem('mojian-cloud-updated-at') || null;
+let chapterReorderSuppressClick = false;
 
 document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
 
@@ -53,7 +54,7 @@ function closeItemPreview() { document.querySelector('#itemPreview').hidden = tr
 function markLocalChange() { if (!applyingCloudState) hasLocalChanges = true; }
 function saveBooks() { localStorage.setItem('mojian-books', JSON.stringify(books)); markLocalChange(); queueCloudSave(); }
 function saveTrash() { localStorage.setItem('mojian-trash', JSON.stringify(trash)); markLocalChange(); queueCloudSave(); }
-function bookCount(book) { const chapters = book.chapters || []; const words = chapters.reduce((sum, item) => sum + (item.words || 0), 0); return `共 ${chapters.length} 章 · ${words.toLocaleString()} 字`; }
+function bookCount(book) { const chapters = book.chapters || []; return `共 ${chapters.length} 章 · ${countedWords(chapters).toLocaleString()} 字`; }
 function setActiveBook(name) { if (!name || !books[name]) return false; activeBook = name; localStorage.setItem('mojian-active-book', name); return true; }
 function scoped(key) { return activeBook && books[activeBook] ? books[activeBook][key] : []; }
 function contextName() { return activeBook ? `《${activeBook}》` : '请先选择作品'; }
@@ -159,19 +160,39 @@ function openToolBookMenu() {
   toolBookMenu.hidden = !toolBookMenu.hidden;
   document.querySelectorAll('#toolBookMenu button').forEach(button => button.addEventListener('click', () => { setActiveBook(button.dataset.book); renderBookControls(); refreshScopedViews(); toolBookMenu.hidden = true; }));
 }
+function isZeroVolume(volume) { return ['0', '第0卷', '第零卷', '零卷'].includes(String(volume || '').replace(/\s/g, '')); }
+function countedWords(chapters) { return (chapters || []).filter(item => !isZeroVolume(item.volume)).reduce((sum, item) => sum + (item.words || 0), 0); }
+function moveChapter(fromIndex, toIndex) { if (!activeBook || fromIndex === toIndex) return; const chapters = books[activeBook].chapters; const [chapter] = chapters.splice(fromIndex, 1); chapters.splice(toIndex, 0, chapter); saveBooks(); renderChapters(); notify('章节顺序已调整'); }
+function bindChapterReordering() {
+  let draggingIndex = null;
+  const clearDragMarks = () => document.querySelectorAll('.chapter-row.is-reordering,.chapter-row.is-drag-target').forEach(row => row.classList.remove('is-reordering', 'is-drag-target'));
+  document.querySelectorAll('.chapter-row').forEach(row => {
+    let holdTimer = null; let touchActive = false; let touchTargetIndex = null; let startX = 0; let startY = 0;
+    const clearTouch = () => { clearTimeout(holdTimer); holdTimer = null; clearDragMarks(); };
+    row.addEventListener('dragstart', event => { draggingIndex = Number(row.dataset.chapterIndex); row.classList.add('is-reordering'); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(draggingIndex)); });
+    row.addEventListener('dragover', event => { if (draggingIndex === null || row.dataset.chapterVolume !== document.querySelector(`.chapter-row[data-chapter-index="${draggingIndex}"]`)?.dataset.chapterVolume) return; event.preventDefault(); clearDragMarks(); row.classList.add('is-drag-target'); });
+    row.addEventListener('drop', event => { if (draggingIndex === null) return; event.preventDefault(); const target = Number(row.dataset.chapterIndex); const source = draggingIndex; const sameVolume = row.dataset.chapterVolume === document.querySelector(`.chapter-row[data-chapter-index="${source}"]`)?.dataset.chapterVolume; draggingIndex = null; clearDragMarks(); if (!sameVolume) { notify('请在同一卷内调整章节顺序'); return; } if (source !== target) { chapterReorderSuppressClick = true; moveChapter(source, target); } });
+    row.addEventListener('dragend', () => { draggingIndex = null; clearDragMarks(); });
+    row.addEventListener('touchstart', event => { const touch = event.touches[0]; if (!touch) return; startX = touch.clientX; startY = touch.clientY; touchTargetIndex = Number(row.dataset.chapterIndex); holdTimer = setTimeout(() => { touchActive = true; row.classList.add('is-reordering'); navigator.vibrate?.(12); }, 420); }, { passive: true });
+    row.addEventListener('touchmove', event => { const touch = event.touches[0]; if (!touch) return; if (!touchActive) { if (Math.abs(touch.clientX - startX) > 8 || Math.abs(touch.clientY - startY) > 8) clearTimeout(holdTimer); return; } event.preventDefault(); const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.chapter-row'); if (!target || target.dataset.chapterVolume !== row.dataset.chapterVolume) return; clearDragMarks(); row.classList.add('is-reordering'); target.classList.add('is-drag-target'); touchTargetIndex = Number(target.dataset.chapterIndex); }, { passive: false });
+    row.addEventListener('touchend', event => { if (!touchActive) { clearTouch(); return; } event.preventDefault(); const source = Number(row.dataset.chapterIndex); const target = touchTargetIndex; touchActive = false; clearTouch(); if (source !== target) { chapterReorderSuppressClick = true; moveChapter(source, target); } }, { passive: false });
+    row.addEventListener('touchcancel', () => { touchActive = false; clearTouch(); });
+  });
+}
 function renderChapters() {
   const book = activeBook ? books[activeBook] : null;
   document.querySelector('#currentBook').textContent = book ? activeBook : '还没有作品'; document.querySelector('#chapterCount').textContent = book ? bookCount(book) : '先在作品页创建一部小说';
   if (!book || !book.chapters.length) { chapterList.innerHTML = `<div class="chapter-empty"><b>○</b>${book ? '还没有章节，准备好后开始写第一章。' : '创建作品后，章节会显示在这里。'}</div>`; return; }
-  const keyword = document.querySelector('#chapterSearch').value.trim().toLowerCase();
-  const visible = book.chapters.map((item, index) => ({ item, index })).filter(({ item }) => !keyword || `${item.title} ${item.body}`.toLowerCase().includes(keyword));
+  const keyword = document.querySelector('#chapterSearch').value.trim().toLowerCase(); let chapterNumber = 0;
+  const visible = book.chapters.map((item, index) => { const zeroVolume = isZeroVolume(item.volume); const numberLabel = zeroVolume ? '' : `第 ${++chapterNumber} 章`; return { item, index, zeroVolume, numberLabel }; }).filter(({ item }) => !keyword || `${item.title} ${item.body}`.toLowerCase().includes(keyword));
   const groups = visible.reduce((result, entry) => { const volume = entry.item.volume || '未分卷'; (result[volume] ||= []).push(entry); return result; }, {});
-  chapterList.innerHTML = Object.entries(groups).map(([volume, items]) => `<section class="chapter-volume"><div class="chapter-volume-head"><h2>${escapeHtml(volume)}</h2><button class="volume-export" data-volume="${escapeHtml(volume)}">导出本卷</button></div>${items.map(({ item, index }) => `<button class="chapter-row" data-chapter-index="${index}"><span class="chapter-no">第 ${index + 1} 章</span><span class="chapter-title">${escapeHtml(item.title)}</span><span class="chapter-meta"><i class="chapter-status ${item.status || '草稿'}">${item.status || '草稿'}</i> ${(item.words || 0).toLocaleString()} 字</span><b>›</b></button>`).join('')}</section>`).join('') || '<div class="chapter-empty">没有匹配的章节</div>';
-  document.querySelectorAll('.chapter-row').forEach(row => row.addEventListener('click', () => openEditor(Number(row.dataset.chapterIndex))));
+  chapterList.innerHTML = Object.entries(groups).map(([volume, items]) => `<section class="chapter-volume"><div class="chapter-volume-head"><h2>${escapeHtml(volume)}</h2><button class="volume-export" data-volume="${escapeHtml(volume)}">导出本卷</button></div>${items.map(({ item, index, zeroVolume, numberLabel }) => `<button type="button" class="chapter-row${zeroVolume ? ' zero-volume' : ''}" draggable="true" data-chapter-index="${index}" data-chapter-volume="${escapeHtml(volume)}"><span class="chapter-no">${numberLabel}</span><span class="chapter-title">${escapeHtml(item.title)}</span><span class="chapter-meta"><i class="chapter-status ${item.status || '草稿'}">${item.status || '草稿'}</i> ${(item.words || 0).toLocaleString()} 字</span><b>›</b></button>`).join('')}</section>`).join('') || '<div class="chapter-empty">没有匹配的章节</div>';
+  document.querySelectorAll('.chapter-row').forEach(row => row.addEventListener('click', () => { if (chapterReorderSuppressClick) { chapterReorderSuppressClick = false; return; } openEditor(Number(row.dataset.chapterIndex)); }));
+  bindChapterReordering();
   document.querySelectorAll('.volume-export').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); const chapters = book.chapters.filter(item => (item.volume || '未分卷') === button.dataset.volume); downloadText(exportChapters(activeBook, chapters), `墨间-${activeBook}-${button.dataset.volume}.txt`); notify('本卷已导出'); }));
 }
 function formatDate(value) { const date = value ? new Date(value) : new Date(); return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日`; }
-function renderDashboard() { const today = new Date().toDateString(); const chapters = Object.values(books).flatMap(book => book.chapters || []); document.querySelector('#dashboardWords').textContent = chapters.reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString(); document.querySelector('#dashboardPending').textContent = chapters.filter(item => item.status === '待发布').length; document.querySelector('#dashboardToday').textContent = chapters.filter(item => item.updatedAt && new Date(item.updatedAt).toDateString() === today).reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString(); }
+function renderDashboard() { const today = new Date().toDateString(); const chapters = Object.values(books).flatMap(book => book.chapters || []); const counted = chapters.filter(item => !isZeroVolume(item.volume)); document.querySelector('#dashboardWords').textContent = countedWords(chapters).toLocaleString(); document.querySelector('#dashboardPending').textContent = chapters.filter(item => item.status === '待发布').length; document.querySelector('#dashboardToday').textContent = counted.filter(item => item.updatedAt && new Date(item.updatedAt).toDateString() === today).reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString(); }
 function renderPublishQueue() { const select = document.querySelector('#publishBookSelect'); const names = Object.keys(books); select.innerHTML = names.map(name => `<option ${name === activeBook ? 'selected' : ''}>${escapeHtml(name)}</option>`).join(''); const chapters = scoped('chapters'); const list = chapters.map((chapter, index) => ({ chapter, index })).filter(({ chapter }) => chapter.status === '待发布' || chapter.status === '已发布'); document.querySelector('#publishQueue').innerHTML = list.length ? list.map(({ chapter, index }) => { const latest = chapter.publishRecords?.at(-1); return `<article class="publish-item"><div><span class="chapter-status ${chapter.status}">${chapter.status}</span><h3>第 ${index + 1} 章 · ${escapeHtml(chapter.title)}</h3><p>${latest ? `${escapeHtml(latest.platform || '未填写平台')} · ${formatDate(latest.publishedAt)}` : chapter.status === '待发布' ? '准备发布，尚未填写记录' : '暂无发布记录'}</p>${latest?.url ? `<a href="${escapeHtml(latest.url)}" target="_blank" rel="noopener">查看发布链接</a>` : ''}</div><button class="publish-record" data-chapter-index="${index}">${chapter.status === '已发布' ? '补充记录' : '记录发布'}</button></article>`; }).join('') : '<div class="publish-empty"><b>↑</b>还没有待发布或已发布章节。<br>在编辑器将章节状态设为“待发布”后，它会出现在这里。</div>'; document.querySelectorAll('.publish-record').forEach(button => button.addEventListener('click', () => openPublishForm(Number(button.dataset.chapterIndex)))); }
 function openPublishForm(index) { const chapter = scoped('chapters')[index]; if (!chapter) return; publishingChapterIndex = index; const latest = chapter.publishRecords?.at(-1); document.querySelector('#publishFormTitle').textContent = `记录：${chapter.title}`; document.querySelector('#publishPlatform').value = latest?.platform || ''; document.querySelector('#publishedAt').value = latest?.publishedAt ? new Date(latest.publishedAt).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16); document.querySelector('#publishUrl').value = latest?.url || ''; document.querySelector('#publishForm').hidden = false; document.querySelector('#publishPlatform').focus(); document.querySelector('#publishForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 function renderWorkList() {
@@ -184,7 +205,7 @@ function showWorkDetails(name) {
   if (!setActiveBook(name)) return; refreshScopedViews(); const book = books[name];
   screen.classList.remove('show-chapters', 'show-settings', 'show-materials', 'show-tool', 'show-editor', 'show-add-work', 'show-add-material', 'show-trash'); chaptersPage.classList.remove('is-visible'); settingsPage.classList.remove('is-visible'); materialsPage.classList.remove('is-visible'); trashPage.classList.remove('is-visible'); editorPage.classList.remove('is-visible'); addWorkPage.classList.remove('is-visible'); addMaterialPage.classList.remove('is-visible'); toolPages.forEach(item => item.classList.remove('is-visible'));
   screen.classList.add('show-detail'); detailPage.classList.add('is-visible');
-  document.querySelector('#detailTitle').textContent = name; document.querySelector('#detailGenre').textContent = book.genre || '未填写题材'; document.querySelector('#detailGenreInfo').textContent = book.genre || '未填写'; document.querySelector('#detailChapters').textContent = book.chapters.length; document.querySelector('#detailWords').textContent = book.chapters.reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString();
+  document.querySelector('#detailTitle').textContent = name; document.querySelector('#detailGenre').textContent = book.genre || '未填写题材'; document.querySelector('#detailGenreInfo').textContent = book.genre || '未填写'; document.querySelector('#detailChapters').textContent = book.chapters.length; document.querySelector('#detailWords').textContent = countedWords(book.chapters).toLocaleString();
   document.querySelector('#detailCreatedAt').textContent = `创建于 ${formatDate(book.createdAt)}`; document.querySelector('#detailUpdated').textContent = book.updatedAt ? formatDate(book.updatedAt) : '暂无修改';
 }
 function renderCharacters() {
