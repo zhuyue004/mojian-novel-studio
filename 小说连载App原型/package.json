@@ -1,6 +1,6 @@
 {
   "name": "mojian-novel-studio",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "墨间，私人小说工作台",
   "main": "electron-main.js",
   "author": "ZhuYue",

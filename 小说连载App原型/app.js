@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '3.1';
-const APP_MODIFIED_AT = '2026年08月25日 10:30';
+const APP_VERSION = '3.2';
+const APP_MODIFIED_AT = '2026年08月26日 16:15';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
@@ -40,6 +40,7 @@ let lastKnownCloudUpdatedAt = localStorage.getItem('mojian-cloud-updated-at') ||
 let chapterReorderSuppressClick = false;
 
 document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
+document.body.insertAdjacentHTML('beforeend', '<div id="exportDialog" class="export-dialog" hidden><article class="export-sheet"><h2>导出作品稿件</h2><p>选择一部作品。将从第一卷开始导出，第0卷不会包含在文件中。</p><select id="exportBookSelect" aria-label="选择作品"></select><div class="export-actions"><button id="exportCancel" type="button">取消</button><button id="exportConfirm" type="button">导出</button></div></article></div>');
 
 document.body.insertAdjacentHTML('beforeend', '<div id="itemPreview" class="item-preview" hidden><article class="item-preview-sheet"><button id="itemPreviewClose" class="item-preview-close" aria-label="关闭">×</button><p id="itemPreviewMeta" class="eyebrow"></p><h2 id="itemPreviewTitle"></h2><p id="itemPreviewInfo" class="item-preview-info"></p><div id="itemPreviewContent" class="item-preview-content"></div></article></div>');
 
@@ -317,7 +318,10 @@ function confirmDeletion() {
   }
 }
 function exportChapters(name, chapters) { const book = books[name]; return `墨间 · 稿件导出\n\n《${name}》\n${book.genre ? `题材：${book.genre}\n` : ''}${chapters.reduce((sum, item) => sum + (item.words || 0), 0).toLocaleString()} 字\n\n${chapters.map(item => `# ${item.title}\n${item.body || ''}`).join('\n\n')}`; }
-function exportBook(name) { return exportChapters(name, books[name].chapters); }
+function exportBook(name) { const chapters = books[name].chapters.filter(item => !isZeroVolume(item.volume)); const book = books[name]; const grouped = chapters.map((item, index) => `${index === 0 || item.volume !== chapters[index - 1].volume ? `${item.volume ? `【${item.volume}】\n` : ''}` : ''}# ${item.title}\n${item.body || ''}`).join('\n\n'); return `墨间 · 稿件导出\n\n《${name}》\n${book.genre ? `题材：${book.genre}\n` : ''}${countedWords(book.chapters).toLocaleString()} 字\n\n${grouped}`; }
+function openBookExportDialog() { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } const select = document.querySelector('#exportBookSelect'); select.innerHTML = names.map(name => `<option value="${escapeHtml(name)}" ${name === activeBook ? 'selected' : ''}>${escapeHtml(name)}</option>`).join(''); document.querySelector('#exportDialog').hidden = false; }
+function closeBookExportDialog() { document.querySelector('#exportDialog').hidden = true; }
+function exportSelectedBook() { const name = document.querySelector('#exportBookSelect').value; const chapters = books[name]?.chapters?.filter(item => !isZeroVolume(item.volume)) || []; if (!chapters.length) { notify('《' + name + '》从第一卷开始暂无可导出章节'); return; } const checks = chapters.flatMap((item, index) => [!item.title || item.title === '未命名章节' ? `第 ${index + 1} 章尚未命名` : '', !String(item.body || '').trim() ? `第 ${index + 1} 章正文为空` : '', item.status === '草稿' ? `第 ${index + 1} 章仍为草稿` : ''].filter(Boolean)); const report = checks.length ? `\n\n--- 发布前检查 ---\n${checks.map(item => `- ${item}`).join('\n')}` : '\n\n--- 发布前检查 ---\n全部通过'; downloadText(exportBook(name) + report, `墨间-${name}-稿件.txt`); closeBookExportDialog(); notify(checks.length ? `已导出《${name}》，附 ${checks.length} 条发布提醒` : `已导出《${name}》`); }
 function publishChecks(name) { const chapters = books[name].chapters || []; return chapters.flatMap((item, index) => [!item.title || item.title === '未命名章节' ? `第 ${index + 1} 章尚未命名` : '', !String(item.body || '').trim() ? `第 ${index + 1} 章正文为空` : '', item.status === '草稿' ? `第 ${index + 1} 章仍为草稿` : ''].filter(Boolean)); }
 function downloadText(content, filename) { const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); }
 
@@ -325,7 +329,11 @@ document.querySelector('#workForm').addEventListener('submit', event => { event.
 const syncToggle = document.querySelector('#syncToggle'); const syncOn = localStorage.getItem('mojian-sync') === 'on'; syncToggle.checked = syncOn; const syncStatus = document.querySelector('#syncStatus'); const autoSyncCopy = syncToggle.closest('.setting-row').querySelector('div p'); autoSyncCopy?.remove(); syncToggle.closest('.setting-row').querySelector('div').append(syncStatus); const syncNowButton = document.createElement('button'); syncNowButton.type = 'button'; syncNowButton.className = 'sync-now'; syncNowButton.textContent = '立即同步'; document.querySelector('.sync-settings-card').insertBefore(syncNowButton, document.querySelector('#syncAccountOpen')); setSyncStatus('需登录同步账户');
 syncToggle.addEventListener('change', async () => { const enabled = syncToggle.checked; localStorage.setItem('mojian-sync', enabled ? 'on' : 'off'); const user = window.mojianCloud ? await window.mojianCloud.getUser() : null; renderSyncAccount(user); if (enabled && user) queueCloudSave(); notify(enabled ? '自动同步已开启' : '自动同步已关闭'); });
 syncNowButton.addEventListener('click', () => pullCloudState({ manual: true }));
-document.querySelector('#exportButton').addEventListener('click', () => { const names = Object.keys(books); if (!names.length) { notify('请先创建作品'); return; } const checks = names.flatMap(name => publishChecks(name).map(item => `《${name}》：${item}`)); const report = checks.length ? `\n\n--- 发布前检查 ---\n${checks.map(item => `- ${item}`).join('\n')}` : '\n\n--- 发布前检查 ---\n全部通过'; downloadText(names.map(exportBook).join('\n\n') + report, '墨间-全部稿件.txt'); notify(checks.length ? `已导出，附 ${checks.length} 条发布提醒` : '已导出全部稿件，检查通过'); });
+document.querySelector('#exportButton').querySelector('h3').textContent = '导出作品稿件'; document.querySelector('#exportButton').querySelector('p').textContent = '按书名导出，不含第0卷'; document.querySelector('#exportButton').addEventListener('click', openBookExportDialog);
+document.querySelector('#exportCancel').addEventListener('click', closeBookExportDialog);
+document.querySelector('#exportConfirm').addEventListener('click', exportSelectedBook);
+document.querySelector('#exportDialog').addEventListener('click', event => { if (event.target.id === 'exportDialog') closeBookExportDialog(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('#exportDialog').hidden) closeBookExportDialog(); });
 document.querySelector('#publishOpen').addEventListener('click', openPublishPage);
 document.querySelector('#publishBack').addEventListener('click', () => showPage('设置'));
 document.querySelector('#publishBookSelect').addEventListener('change', event => { setActiveBook(event.target.value); renderBookControls(); refreshScopedViews(); renderPublishQueue(); });
