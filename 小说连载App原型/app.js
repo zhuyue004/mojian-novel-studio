@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '3.2';
-const APP_MODIFIED_AT = '2026年08月26日 16:15';
+const APP_VERSION = '3.3';
+const APP_MODIFIED_AT = '2026年08月29日 15:44';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
@@ -38,9 +38,11 @@ let cloudSyncInFlight = false;
 let hasLocalChanges = false;
 let lastKnownCloudUpdatedAt = localStorage.getItem('mojian-cloud-updated-at') || null;
 let chapterReorderSuppressClick = false;
+let pendingImportedChapters = [];
 
 document.body.insertAdjacentHTML('beforeend', '<div id="deleteModal" class="delete-modal" hidden><div class="delete-dialog"><h2 id="deleteTitle">确认删除？</h2><p id="deleteHint"></p><p class="delete-code">请输入 <b id="deleteCode">0000</b> 确认</p><input id="deleteCodeInput" inputmode="numeric" maxlength="4" placeholder="输入四位数字"><div class="delete-actions"><button id="deleteCancel">取消</button><button id="deleteConfirm" disabled>确认删除</button></div></div></div>');
 document.body.insertAdjacentHTML('beforeend', '<div id="exportDialog" class="export-dialog" hidden><article class="export-sheet"><h2>导出作品稿件</h2><p>选择一部作品。将从第一卷开始导出，第0卷不会包含在文件中。</p><select id="exportBookSelect" aria-label="选择作品"></select><div class="export-actions"><button id="exportCancel" type="button">取消</button><button id="exportConfirm" type="button">导出</button></div></article></div>');
+document.body.insertAdjacentHTML('beforeend', '<div id="importDialog" class="import-dialog" hidden><article class="import-sheet"><h2>导入 TXT</h2><p id="importSummary">请选择要导入的文本。</p><label for="importVolumeInput">导入到分卷</label><input id="importVolumeInput" maxlength="24" placeholder="例如：第一卷"><div id="importPreview" class="import-preview"></div><div class="import-actions"><button id="importCancel" type="button">取消</button><button id="importConfirm" type="button">导入章节</button></div></article></div>');
 
 document.body.insertAdjacentHTML('beforeend', '<div id="itemPreview" class="item-preview" hidden><article class="item-preview-sheet"><button id="itemPreviewClose" class="item-preview-close" aria-label="关闭">×</button><p id="itemPreviewMeta" class="eyebrow"></p><h2 id="itemPreviewTitle"></h2><p id="itemPreviewInfo" class="item-preview-info"></p><div id="itemPreviewContent" class="item-preview-content"></div></article></div>');
 
@@ -146,7 +148,7 @@ function openMaterialForm(index = null) { if (!ensureActiveBook()) { notify('请
 
 function renderBookControls() {
   const names = Object.keys(books); const ready = ensureActiveBook();
-  document.querySelector('#bookSwitch').disabled = !ready; document.querySelector('#newChapterButton').disabled = !ready; document.querySelector('#newMaterialButton').disabled = !ready; document.querySelectorAll('#materialFilters button').forEach(button => { button.disabled = !ready; });
+  document.querySelector('#bookSwitch').disabled = !ready; document.querySelector('#newChapterButton').disabled = !ready; document.querySelector('#importChapterButton').disabled = !ready; document.querySelector('#newMaterialButton').disabled = !ready; document.querySelectorAll('#materialFilters button').forEach(button => { button.disabled = !ready; });
   document.querySelectorAll('[data-tool-book-switch]').forEach(button => { button.disabled = !ready; });
   bookMenu.innerHTML = names.map(name => `<button data-book="${escapeHtml(name)}">${escapeHtml(name)} <small>${bookCount(books[name])}</small></button>`).join('');
   document.querySelectorAll('#bookMenu button').forEach(button => button.addEventListener('click', () => { setActiveBook(button.dataset.book); renderChapters(); refreshScopedViews(); bookMenu.hidden = true; }));
@@ -163,6 +165,42 @@ function openToolBookMenu() {
 }
 function isZeroVolume(volume) { return ['0', '第0卷', '第零卷', '零卷'].includes(String(volume || '').replace(/\s/g, '')); }
 function countedWords(chapters) { return (chapters || []).filter(item => !isZeroVolume(item.volume)).reduce((sum, item) => sum + (item.words || 0), 0); }
+function defaultImportVolume() { return scoped('chapters').slice().reverse().find(item => item.volume && !isZeroVolume(item.volume))?.volume || '第一卷'; }
+function parseTxtChapters(text, filename) {
+  const content = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
+  const fallbackTitle = String(filename || '导入章节').replace(/\.[^.]+$/, '').trim() || '导入章节';
+  const pattern = /^\s*(?:第\s*[0-9一二三四五六七八九十百千万零〇]+\s*章(?:\s*[：:、.．—-]\s*.*)?|chapter\s+\d+(?:\s*[:：.\-—]\s*.*)?)\s*$/gim;
+  const headings = [...content.matchAll(pattern)];
+  if (!headings.length) return [{ title: fallbackTitle, body: content }];
+  const chapters = [];
+  const preface = content.slice(0, headings[0].index).trim();
+  if (preface) chapters.push({ title: fallbackTitle, body: preface });
+  headings.forEach((heading, index) => {
+    const headingText = heading[0].trim();
+    const nextAt = headings[index + 1]?.index ?? content.length;
+    const title = headingText.replace(/^\s*(?:第\s*[0-9一二三四五六七八九十百千万零〇]+\s*章|chapter\s+\d+)\s*[:：、.．—-]?\s*/i, '').trim() || headingText;
+    chapters.push({ title, body: content.slice(heading.index + heading[0].length, nextAt).trim() });
+  });
+  return chapters;
+}
+function closeImportDialog() { pendingImportedChapters = []; document.querySelector('#importDialog').hidden = true; }
+function openImportDialog(file, text) {
+  pendingImportedChapters = parseTxtChapters(text, file.name);
+  const count = pendingImportedChapters.length;
+  document.querySelector('#importSummary').textContent = `已读取“${file.name}”，识别到 ${count} 个章节。确认后会加入《${activeBook}》。`;
+  document.querySelector('#importVolumeInput').value = defaultImportVolume();
+  const preview = pendingImportedChapters.slice(0, 5).map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item.title || '未命名章节')}</span><small>${(item.body || '').length.toLocaleString()} 字</small></li>`).join('');
+  document.querySelector('#importPreview').innerHTML = `<p>导入预览${count > 5 ? `（前 5 个，共 ${count} 个）` : ''}</p><ol>${preview}</ol>`;
+  document.querySelector('#importDialog').hidden = false;
+}
+function importTxtChapters() {
+  if (!ensureActiveBook() || !pendingImportedChapters.length) return;
+  const volume = document.querySelector('#importVolumeInput').value.trim() || defaultImportVolume();
+  const now = new Date().toISOString();
+  pendingImportedChapters.forEach(item => books[activeBook].chapters.push({ title: item.title || '未命名章节', body: item.body || '', words: (item.body || '').length, status: '草稿', volume, updatedAt: now }));
+  const count = pendingImportedChapters.length;
+  saveBooks(); closeImportDialog(); renderBookControls(); renderWorkList(); notify(`已导入 ${count} 个章节到${volume}`);
+}
 function moveChapter(fromIndex, toIndex) { if (!activeBook || fromIndex === toIndex) return; const chapters = books[activeBook].chapters; const [chapter] = chapters.splice(fromIndex, 1); chapters.splice(toIndex, 0, chapter); saveBooks(); renderChapters(); notify('章节顺序已调整'); }
 function bindChapterReordering() {
   let draggingIndex = null;
@@ -361,7 +399,24 @@ document.querySelector('#characterBack').addEventListener('click', () => openToo
 document.querySelector('#newWorkButton').addEventListener('click', openNewWork); document.querySelector('#newWorkBack').addEventListener('click', () => showPage('作品')); document.querySelector('#newMaterialButton').addEventListener('click', openMaterialForm); document.querySelector('#materialBack').addEventListener('click', () => showPage('素材'));
 document.querySelectorAll('#materialFilters button').forEach(button => button.addEventListener('click', () => { activeMaterialFilter = button.dataset.filter; document.querySelector('#materialFilters .active')?.classList.remove('active'); button.classList.add('active'); renderMaterials(); }));
 document.querySelector('#materialBookSelect').addEventListener('change', event => { setActiveBook(event.target.value); renderBookControls(); refreshScopedViews(); });
+const importChapterButton = document.createElement('button');
+importChapterButton.id = 'importChapterButton'; importChapterButton.className = 'chapter-import'; importChapterButton.type = 'button'; importChapterButton.textContent = '导入 TXT';
+document.querySelector('#newChapterButton').insertAdjacentElement('beforebegin', importChapterButton);
+const chapterFileInput = document.createElement('input');
+chapterFileInput.type = 'file'; chapterFileInput.accept = '.txt,text/plain'; chapterFileInput.hidden = true; document.body.append(chapterFileInput);
 document.querySelector('#newChapterButton').addEventListener('click', () => { if (!ensureActiveBook()) { notify('请先在作品页创建或选择一部作品'); return; } books[activeBook].chapters.push({ title: '未命名章节', body: '', words: 0, status: '草稿', volume: '' }); saveBooks(); openEditor(books[activeBook].chapters.length - 1); });
+importChapterButton.addEventListener('click', () => { if (!ensureActiveBook()) { notify('请先在作品页创建或选择一部作品'); return; } chapterFileInput.click(); });
+chapterFileInput.addEventListener('change', event => {
+  const file = event.target.files?.[0]; if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { notify('TXT 文件请控制在 5 MB 以内'); event.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = () => { openImportDialog(file, reader.result); event.target.value = ''; };
+  reader.onerror = () => { notify('TXT 文件读取失败'); event.target.value = ''; };
+  reader.readAsText(file, 'UTF-8');
+});
+document.querySelector('#importCancel').addEventListener('click', closeImportDialog);
+document.querySelector('#importConfirm').addEventListener('click', importTxtChapters);
+document.querySelector('#importDialog').addEventListener('click', event => { if (event.target.id === 'importDialog') closeImportDialog(); });
 document.querySelector('#chapterSearch').addEventListener('input', renderChapters);
 document.querySelector('#chapterTitleInput').addEventListener('input', updateEditorMeta); document.querySelector('#chapterVolume').addEventListener('input', updateEditorMeta); document.querySelector('#chapterStatus').addEventListener('change', updateEditorMeta); document.querySelector('#chapterBodyInput').addEventListener('input', updateEditorMeta); document.querySelector('#editorBack').addEventListener('click', closeEditor); document.querySelector('#chapterDone').addEventListener('click', () => { updateEditorMeta(); notify('章节已保存'); closeEditor(); });
 document.querySelector('#chapterExport').addEventListener('click', () => { if (activeChapterIndex === null || !books[activeBook]) return; updateEditorMeta(); const chapter = books[activeBook].chapters[activeChapterIndex]; downloadText(exportChapters(activeBook, [chapter]), `墨间-${chapter.title}.txt`); notify('当前章节已导出'); });
@@ -378,7 +433,7 @@ document.querySelector('#bookSwitch').addEventListener('click', () => { bookMenu
 document.querySelectorAll('[data-tool-book-switch]').forEach(button => button.addEventListener('click', openToolBookMenu));
 document.querySelectorAll('.tool-card').forEach(button => button.addEventListener('click', () => { const name = button.querySelector('span').textContent; openTool(name === '人物设定' ? '#charactersPage' : name === '故事时间线' ? '#timelinePage' : '#outlinePage'); }));
 document.querySelectorAll('.tabbar button[data-page]').forEach(button => button.addEventListener('click', () => { document.querySelector('.tabbar .active')?.classList.remove('active'); button.classList.add('active'); showPage(button.dataset.page); if (button.dataset.page === '章节') renderChapters(); if (button.dataset.page === '素材') refreshScopedViews(); }));
-document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && isDesktopLayout()) { event.preventDefault(); if (editorPage.classList.contains('is-visible')) { updateEditorMeta(); notify('已保存'); } } if (event.key === 'Escape') { if (!document.querySelector('#itemPreview').hidden) closeItemPreview(); else if (!document.querySelector('#deleteModal').hidden) closeDeleteModal(); else if (editorPage.classList.contains('is-visible')) closeEditor(); else { bookMenu.hidden = true; toolBookMenu.hidden = true; } } });
+document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && isDesktopLayout()) { event.preventDefault(); if (editorPage.classList.contains('is-visible')) { updateEditorMeta(); notify('已保存'); } } if (event.key === 'Escape') { if (!document.querySelector('#importDialog').hidden) closeImportDialog(); else if (!document.querySelector('#itemPreview').hidden) closeItemPreview(); else if (!document.querySelector('#deleteModal').hidden) closeDeleteModal(); else if (editorPage.classList.contains('is-visible')) closeEditor(); else { bookMenu.hidden = true; toolBookMenu.hidden = true; } } });
 renderBookControls(); renderWorkList(); refreshScopedViews(); renderTrash();
 window.addEventListener('mojian-cloud-ready', initialiseCloud);
 if ('serviceWorker' in navigator) {
