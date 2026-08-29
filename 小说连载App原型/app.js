@@ -1,6 +1,6 @@
 const toast = document.querySelector('.toast');
-const APP_VERSION = '3.3';
-const APP_MODIFIED_AT = '2026年08月29日 15:44';
+const APP_VERSION = '3.4';
+const APP_MODIFIED_AT = '2026年08月29日 22:13';
 document.querySelector('.about-card p').textContent = `私人小说工作台 · v${APP_VERSION}`;
 document.querySelector('.about-card p + p').textContent = `修改时间：${APP_MODIFIED_AT}`;
 const screen = document.querySelector('.screen');
@@ -169,7 +169,7 @@ function defaultImportVolume() { return scoped('chapters').slice().reverse().fin
 function parseTxtChapters(text, filename) {
   const content = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
   const fallbackTitle = String(filename || '导入章节').replace(/\.[^.]+$/, '').trim() || '导入章节';
-  const pattern = /^\s*(?:第\s*[0-9一二三四五六七八九十百千万零〇]+\s*章(?:\s*[：:、.．—-]\s*.*)?|chapter\s+\d+(?:\s*[:：.\-—]\s*.*)?)\s*$/gim;
+  const pattern = /^[ \t]*(?:第[ \t]*[0-9一二三四五六七八九十百千万零〇]+[ \t]*章|chapter[ \t]+\d+)(?:(?:[ \t]*[：:、.．—-][ \t]*)|[ \t]+)?[^\n]*$/gim;
   const headings = [...content.matchAll(pattern)];
   if (!headings.length) return [{ title: fallbackTitle, body: content }];
   const chapters = [];
